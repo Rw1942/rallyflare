@@ -1,0 +1,16 @@
+{
+  "compatibility_date": "2025-04-01",
+  "main": "src/index.ts",
+  "name": "rallyflare",
+  "upload_source_maps": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_id": "d80adc3d-40bf-4371-954b-884527f2a2c9",
+      "database_name": "rally-database"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
