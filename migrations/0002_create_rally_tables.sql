@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS project_settings (
 );
 
 -- Insert default project settings
+-- Using GPT-5 with Responses API (reasoning effort and verbosity configured in code)
 INSERT INTO project_settings (project_slug, model, system_prompt, temperature)
-VALUES ('default', 'gpt-4o-mini', 'You are Rally, an intelligent email assistant. Summarize the email content clearly and provide a helpful response.', 0.2);
+VALUES ('default', 'gpt-5', 'You are Rally, an intelligent email assistant. Summarize the email content clearly and provide a helpful response.', 0.2);
 

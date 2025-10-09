@@ -212,4 +212,4 @@ bucket_name = "rally-attachments"
 
 ---
 
-Would you like me to write the actual `index.ts` Worker and `wrangler.toml` next, so your developer can just copy-paste and deploy it?
+Keep code simple and organized with brief comments, especially if you can relate it to the user journey. 

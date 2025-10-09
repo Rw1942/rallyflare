@@ -324,8 +324,7 @@ export function renderDashboard(messages: Message[]) {
             <p class="tagline">Your intelligent email assistant, working invisibly</p>
             <nav class="nav">
               <a href="/" class="nav-button">Activity</a>
-              <button class="nav-button disabled" disabled>Settings (Coming Soon)</button>
-              <button class="nav-button disabled" disabled>AI Prompts (Coming Soon)</button>
+              <a href="/settings" class="nav-button">Settings</a>
             </nav>
         </header>
           
@@ -455,6 +454,335 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// Settings page for editing system prompt
+export function renderSettings(settings: { system_prompt: string; temperature?: number } | null) {
+  const currentPrompt = settings?.system_prompt || 'You are Rally, an intelligent email assistant.';
+  
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Rally - Settings</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+            color: #2d3748;
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem;
+          }
+          
+          .container {
+            max-width: 900px;
+            margin: 0 auto;
+          }
+          
+          header {
+            margin-bottom: 3rem;
+            text-align: center;
+          }
+          
+          .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+          }
+          
+          .tagline {
+            color: #718096;
+            font-size: 1rem;
+            font-weight: 400;
+          }
+          
+          .nav {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 2rem;
+          }
+          
+          .nav-button {
+            padding: 0.75rem 1.5rem;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            color: #4a5568;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+          }
+          
+          .nav-button:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+          }
+          
+          .settings-card {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+          }
+          
+          .settings-header {
+            margin-bottom: 2rem;
+          }
+          
+          .settings-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+          }
+          
+          .settings-subtitle {
+            color: #718096;
+            font-size: 0.95rem;
+          }
+          
+          .form-group {
+            margin-bottom: 2rem;
+          }
+          
+          .form-label {
+            display: block;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+            font-size: 0.95rem;
+          }
+          
+          .form-help {
+            display: block;
+            color: #718096;
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+          }
+          
+          .form-textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            resize: vertical;
+            min-height: 200px;
+            transition: border-color 0.2s ease;
+          }
+          
+          .form-textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+          }
+          
+          .form-input {
+            width: 100%;
+            max-width: 200px;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: border-color 0.2s ease;
+          }
+          
+          .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+          }
+          
+          .info-box {
+            background: #e8f4f8;
+            border-left: 4px solid #0e7490;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+          }
+          
+          .info-box p {
+            color: #0e7490;
+            font-size: 0.9rem;
+            margin: 0;
+          }
+          
+          .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+          }
+          
+          .btn {
+            padding: 0.875rem 2rem;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+          }
+          
+          .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+          }
+          
+          .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+          }
+          
+          .btn-secondary {
+            background: white;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
+          }
+          
+          .btn-secondary:hover {
+            background: #f7fafc;
+            border-color: #cbd5e0;
+          }
+          
+          .success-message {
+            background: #dcfce7;
+            color: #15803d;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+            display: none;
+          }
+          
+          .success-message.show {
+            display: block;
+          }
+          
+          @media (max-width: 768px) {
+            body {
+              padding: 1rem;
+            }
+            
+            .settings-card {
+              padding: 1.5rem;
+            }
+            
+            .button-group {
+              flex-direction: column;
+            }
+            
+            .btn {
+              width: 100%;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <header>
+            <h1 class="logo">Rally</h1>
+            <p class="tagline">Configure how Rally understands and responds to emails</p>
+            <nav class="nav">
+              <a href="/" class="nav-button">Activity</a>
+              <a href="/settings" class="nav-button" style="background: #667eea; color: white; border-color: #667eea;">Settings</a>
+            </nav>
+          </header>
+          
+          <div class="settings-card">
+            <div class="settings-header">
+              <h2 class="settings-title">AI Settings</h2>
+              <p class="settings-subtitle">Control how Rally processes and responds to incoming emails</p>
+            </div>
+            
+            <div id="successMessage" class="success-message">
+              Settings saved successfully! Changes will apply to all new incoming emails.
+            </div>
+            
+            <div class="info-box">
+              <p><strong>Model:</strong> Using GPT-5 (OpenAI's most intelligent model, optimized for coding, instruction following, and reasoning)</p>
+              <p style="margin-top: 0.5rem;"><strong>Configuration:</strong> Low reasoning effort + Low verbosity for fast, concise email responses</p>
+            </div>
+            
+            <form id="settingsForm" method="POST" action="/settings">
+              <div class="form-group">
+                <label class="form-label" for="system_prompt">System Prompt</label>
+                <span class="form-help">
+                  This tells Rally how to behave when processing emails. Be specific about tone, format, and what actions Rally should take.
+                  GPT-5 will use this as context for understanding and responding to every incoming email.
+                </span>
+                <textarea 
+                  class="form-textarea" 
+                  id="system_prompt" 
+                  name="system_prompt" 
+                  required
+                  placeholder="e.g., You are Rally, a professional email assistant. Provide concise summaries and helpful responses..."
+                >${escapeHtml(currentPrompt)}</textarea>
+              </div>
+              
+              <div class="button-group">
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+                <a href="/" class="btn btn-secondary" style="text-decoration: none; display: inline-block; text-align: center;">Cancel</a>
+              </div>
+            </form>
+          </div>
+        </div>
+        
+        <script>
+          // Handle form submission with fetch to show success message
+          document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = {
+              system_prompt: formData.get('system_prompt')
+            };
+            
+            try {
+              const response = await fetch('/settings', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+              });
+              
+              if (response.ok) {
+                document.getElementById('successMessage').classList.add('show');
+                setTimeout(() => {
+                  document.getElementById('successMessage').classList.remove('show');
+                }, 5000);
+              } else {
+                alert('Error saving settings. Please try again.');
+              }
+            } catch (error) {
+              alert('Error saving settings. Please try again.');
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `;
 }
 
 // Legacy function for backwards compatibility

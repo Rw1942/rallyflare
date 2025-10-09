@@ -1,4 +1,4 @@
-import { renderDashboard } from "./renderHtml";
+import { renderDashboard, renderSettings } from "./renderHtml";
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -17,6 +17,15 @@ export default {
     if (path.startsWith("/messages/") && request.method === "GET") {
       const id = path.split("/")[2];
       return getMessageDetail(env, id);
+    }
+
+    // Settings page - where admins configure Rally's AI behavior
+    if (path === "/settings" && request.method === "GET") {
+      return getSettings(env);
+    }
+
+    if (path === "/settings" && request.method === "POST") {
+      return updateSettings(request, env);
     }
 
     // Default route - show dashboard with recent messages
@@ -146,40 +155,39 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 
 /**
  * Process email content with OpenAI
+ * Uses GPT-5 with the Responses API for optimal email understanding and generation
  */
 async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage): Promise<{ summary: string; reply: string }> {
   try {
-    // Get project settings
+    // Get project settings - these control how Rally thinks and responds
     const settingsResult = await env.DB.prepare(
       "SELECT * FROM project_settings WHERE project_slug = 'default' LIMIT 1"
     ).first();
 
-    const model = settingsResult?.model as string || "gpt-4o-mini";
     const systemPrompt = settingsResult?.system_prompt as string || "You are Rally, an intelligent email assistant.";
-    const temperature = settingsResult?.temperature as number || 0.2;
+    
+    // GPT-5 uses reasoning effort and verbosity instead of temperature
+    // For email: low reasoning = fast responses, low verbosity = concise replies
+    const reasoningEffort = "low"; // Fast, suitable for email processing
+    const verbosity = "low"; // Concise responses
 
     const emailContent = postmarkData.TextBody || postmarkData.StrippedTextReply || "";
 
-    // Call OpenAI API
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Build the input with system instructions and user content
+    const inputPrompt = `${systemPrompt}\n\nPlease provide a brief summary and a helpful reply to this email:\n\nFrom: ${postmarkData.FromFull?.Name} <${postmarkData.FromFull?.Email}>\nSubject: ${postmarkData.Subject}\n\n${emailContent}`;
+
+    // Call OpenAI Responses API (GPT-5)
+    const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model,
-        temperature,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: `Please provide a brief summary and a helpful reply to this email:\n\nFrom: ${postmarkData.FromFull?.Name} <${postmarkData.FromFull?.Email}>\nSubject: ${postmarkData.Subject}\n\n${emailContent}`,
-          },
-        ],
+        model: "gpt-5",
+        input: inputPrompt,
+        reasoning: { effort: reasoningEffort },
+        text: { verbosity: verbosity },
       }),
     });
 
@@ -188,7 +196,7 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     }
 
     const data = await openaiResponse.json() as any;
-    const assistantMessage = data.choices?.[0]?.message?.content || "No response generated";
+    const assistantMessage = data.output_text || "No response generated";
 
     return {
       summary: assistantMessage.substring(0, 500), // First 500 chars as summary
@@ -304,6 +312,64 @@ async function getMessageDetail(env: Env, id: string): Promise<Response> {
   }, null, 2), {
     headers: { "content-type": "application/json" },
   });
+}
+
+/**
+ * Get settings page
+ * Shows current system prompt that controls Rally's AI behavior
+ */
+async function getSettings(env: Env): Promise<Response> {
+  const settings = await env.DB.prepare(
+    "SELECT system_prompt FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+  ).first();
+
+  return new Response(renderSettings(settings as any), {
+    headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Update settings
+ * Admins can modify how Rally interprets and responds to emails
+ * GPT-5 uses fixed reasoning/verbosity settings optimized for email
+ */
+async function updateSettings(request: Request, env: Env): Promise<Response> {
+  try {
+    const data = await request.json() as { system_prompt: string };
+
+    // Validate input
+    if (!data.system_prompt || data.system_prompt.trim().length === 0) {
+      return new Response(JSON.stringify({ error: "System prompt is required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    // Update settings in D1
+    // GPT-5 doesn't use temperature - reasoning effort and verbosity are set in the code
+    await env.DB.prepare(`
+      INSERT INTO project_settings (project_slug, model, system_prompt)
+      VALUES ('default', 'gpt-5', ?)
+      ON CONFLICT(project_slug) 
+      DO UPDATE SET system_prompt = ?, model = 'gpt-5'
+    `).bind(
+      data.system_prompt,
+      data.system_prompt
+    ).run();
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "content-type": "application/json" },
+    });
+
+  } catch (error) {
+    console.error("Error updating settings:", error);
+    return new Response(JSON.stringify({ 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
 }
 
 /**
