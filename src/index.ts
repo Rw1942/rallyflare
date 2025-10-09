@@ -336,6 +336,37 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
     // This way, replies go back to that specific Rally inbox
     const replyToAddress = originalMessage.OriginalRecipient || originalMessage.ToFull?.[0]?.Email || originalMessage.To;
 
+    // Detect if the reply contains HTML (look for common HTML tags)
+    const isHtml = /<(p|div|br|h[1-6]|ul|ol|li|table|strong|em|a)\b[^>]*>/i.test(replyBody);
+    
+    // Prepare email body - if HTML, send both HTML and plain text versions
+    const emailBody: any = {
+      From: "rally@rallycollab.com",
+      ReplyTo: replyToAddress,
+      To: originalMessage.FromFull?.Email || originalMessage.From,
+      Subject: `Re: ${originalMessage.Subject}`,
+      MessageStream: "outbound",
+      Headers: [
+        {
+          Name: "In-Reply-To",
+          Value: originalMessage.MessageID,
+        },
+        {
+          Name: "References",
+          Value: referencesValue,
+        },
+      ],
+    };
+
+    if (isHtml) {
+      // Send as HTML with plain text fallback
+      emailBody.HtmlBody = replyBody;
+      emailBody.TextBody = stripHtmlToText(replyBody);
+    } else {
+      // Send as plain text only
+      emailBody.TextBody = replyBody;
+    }
+
     const response = await fetch(env.POSTMARK_URL, {
       method: "POST",
       headers: {
@@ -343,24 +374,7 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
         "Content-Type": "application/json",
         "X-Postmark-Server-Token": env.POSTMARK_TOKEN,
       },
-      body: JSON.stringify({
-        From: "rally@rallycollab.com",
-        ReplyTo: replyToAddress,
-        To: originalMessage.FromFull?.Email || originalMessage.From,
-        Subject: `Re: ${originalMessage.Subject}`,
-        TextBody: replyBody,
-        MessageStream: "outbound",
-        Headers: [
-          {
-            Name: "In-Reply-To",
-            Value: originalMessage.MessageID,
-          },
-          {
-            Name: "References",
-            Value: referencesValue,
-          },
-        ],
-      }),
+      body: JSON.stringify(emailBody),
     });
 
     if (!response.ok) {
