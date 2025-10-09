@@ -9,7 +9,8 @@ Rally receives emails via Postmark, processes them with OpenAI, and sends contex
 **Key Features:**
 - Receive emails via Postmark inbound webhooks
 - Store messages, participants, and metadata in D1
-- Process email content with OpenAI for intelligent responses
+- **Process email content with GPT-5** using OpenAI's Responses API
+- Handle forwarded email threads and HTML-only emails
 - Send automated replies via Postmark API (preserving email threads)
 - **Beautiful admin dashboard** with modern, soft design
 - Separate views for incoming messages and outgoing replies
@@ -24,7 +25,7 @@ Rally receives emails via Postmark, processes them with OpenAI, and sends contex
 | **Cloudflare D1** | Stores messages, participants, attachments, and settings |
 | **Cloudflare R2** | (Future) Storage for large attachments |
 | **Postmark** | Inbound + outbound email handling |
-| **OpenAI API** | LLM processing for intelligent replies |
+| **OpenAI GPT-5** | LLM processing via Responses API with optimized reasoning effort |
 
 ## Setup Steps
 
@@ -135,9 +136,10 @@ See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy an
 1. **Email arrives** at your Rally address (e.g., `requests@rallycollab.com`)
 2. **Postmark forwards** it to your Worker at `/postmark/inbound`
 3. **Worker stores** message data in D1
-4. **OpenAI processes** the email content using configured prompts
-5. **Worker sends** an intelligent reply via Postmark API
-6. **Everything logged** in D1 for admin console review
+4. **Content extracted** from TextBody, StrippedTextReply, or HtmlBody (handles forwarded emails)
+5. **GPT-5 processes** the email with low reasoning effort for fast, intelligent responses
+6. **Worker sends** an intelligent reply via Postmark API (preserving email threads)
+7. **Everything logged** in D1 for admin console review with full debugging info
 
 ## Development
 
@@ -185,16 +187,22 @@ Edit `project_settings` in D1 to customize AI behavior:
 
 ```sql
 UPDATE project_settings 
-SET model = 'gpt-4o', 
-    system_prompt = 'You are Rally, a helpful assistant...',
-    temperature = 0.3
+SET model = 'gpt-5', 
+    system_prompt = 'You are Rally, a helpful assistant...'
 WHERE project_slug = 'default';
 ```
+
+Note: GPT-5 uses `reasoning.effort` and `text.verbosity` instead of temperature. These are set in the Worker code:
+- `reasoning.effort: "low"` - Fast responses suitable for email
+- `text.verbosity: "low"` - Concise replies
 
 ## Next Steps
 
 - [x] Build admin dashboard UI with modern design
 - [x] Separate incoming and outgoing message views
+- [x] Upgrade to GPT-5 with Responses API
+- [x] Handle forwarded email threads and HTML-only emails
+- [x] Add comprehensive error logging and debugging
 - [ ] Add Settings page for configuration
 - [ ] Add AI Prompts configuration page
 - [ ] Add Cloudflare Access authentication
@@ -210,9 +218,21 @@ WHERE project_slug = 'default';
 - Verify webhook URL in Postmark settings
 - Run `npx wrangler tail` to see incoming requests
 
+**Getting "No response generated" from AI?**
+- Check logs with `npx wrangler tail` to see the full OpenAI response structure
+- Verify email content was extracted (check for "Processing email - Length: X")
+- For forwarded emails, confirm HTML extraction is working (look for "Has HTML fallback: true")
+- The worker now logs detailed request/response info for debugging
+
+**Forwarded email threads not processing?**
+- Fixed in latest version! Worker now extracts content from HTML when TextBody is empty
+- Handles HTML-only forwarded emails by stripping HTML tags
+- Truncates extremely long threads to 50,000 characters
+
 **OpenAI errors?**
 - Verify `OPENAI_API_KEY` is set: `npx wrangler secret list`
 - Check your OpenAI API quota/billing
+- GPT-5 requires access to the Responses API (`/v1/responses` endpoint)
 
 **Can't send replies?**
 - Verify `POSTMARK_TOKEN` is set

@@ -41,6 +41,36 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 /**
+ * Strip HTML tags and decode entities to get plain text
+ * Used as fallback when TextBody is empty (common with forwarded HTML emails)
+ */
+function stripHtmlToText(html: string): string {
+  // Remove script and style tags with their content
+  let text = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  text = text.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+  
+  // Replace common block elements with line breaks
+  text = text.replace(/<\/?(div|p|br|tr|h[1-6])[^>]*>/gi, '\n');
+  
+  // Remove all remaining HTML tags
+  text = text.replace(/<[^>]+>/g, '');
+  
+  // Decode common HTML entities
+  text = text.replace(/&nbsp;/g, ' ');
+  text = text.replace(/&amp;/g, '&');
+  text = text.replace(/&lt;/g, '<');
+  text = text.replace(/&gt;/g, '>');
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+  
+  // Clean up excessive whitespace
+  text = text.replace(/\n\s*\n\s*\n/g, '\n\n'); // Max 2 consecutive newlines
+  text = text.replace(/[ \t]+/g, ' '); // Multiple spaces to single space
+  
+  return text.trim();
+}
+
+/**
  * Handle Postmark inbound webhook
  * Postmark sends JSON payload with email data
  */
@@ -171,10 +201,59 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     const reasoningEffort = "low"; // Fast, suitable for email processing
     const verbosity = "low"; // Concise responses
 
-    const emailContent = postmarkData.TextBody || postmarkData.StrippedTextReply || "";
+    // Try multiple sources for email content, including HTML for forwarded emails
+    // TextBody = full plain text (best for forwards)
+    // StrippedTextReply = only new content in replies (strips quoted text)
+    // HtmlBody = fallback for HTML-only emails
+    let emailContent = postmarkData.TextBody || postmarkData.StrippedTextReply || "";
+    
+    // If no text body, try to extract from HTML (common with forwarded emails)
+    if (!emailContent.trim() && postmarkData.HtmlBody) {
+      console.log("No text body found, extracting from HTML");
+      emailContent = stripHtmlToText(postmarkData.HtmlBody);
+    }
+
+    // Validate we have content to process
+    if (!emailContent.trim()) {
+      console.warn("Empty email body received - no TextBody, StrippedTextReply, or HtmlBody");
+      console.log("Postmark data fields:", {
+        hasTextBody: !!postmarkData.TextBody,
+        hasStrippedTextReply: !!postmarkData.StrippedTextReply,
+        hasHtmlBody: !!postmarkData.HtmlBody,
+        subject: postmarkData.Subject,
+      });
+      return {
+        summary: `Email from ${postmarkData.FromFull?.Email} - Subject: ${postmarkData.Subject}`,
+        reply: "Thank you for your email. We've received it and will respond shortly.",
+      };
+    }
+
+    console.log("Processing email - Length:", emailContent.length, "From:", postmarkData.FromFull?.Email, "Has HTML fallback:", !postmarkData.TextBody && !!postmarkData.HtmlBody);
+
+    // Truncate extremely long emails (forwarded threads can be huge)
+    // GPT-5 context window is large, but let's be reasonable with email threads
+    const MAX_EMAIL_LENGTH = 50000; // ~50k chars = plenty for email threads
+    if (emailContent.length > MAX_EMAIL_LENGTH) {
+      console.warn(`Email content truncated from ${emailContent.length} to ${MAX_EMAIL_LENGTH} chars`);
+      emailContent = emailContent.substring(0, MAX_EMAIL_LENGTH) + "\n\n[... content truncated due to length ...]";
+    }
 
     // Build the input with system instructions and user content
     const inputPrompt = `${systemPrompt}\n\nPlease provide a brief summary and a helpful reply to this email:\n\nFrom: ${postmarkData.FromFull?.Name} <${postmarkData.FromFull?.Email}>\nSubject: ${postmarkData.Subject}\n\n${emailContent}`;
+
+    const requestPayload = {
+      model: "gpt-5",
+      input: inputPrompt,
+      reasoning: { effort: reasoningEffort },
+      text: { verbosity: verbosity },
+    };
+
+    console.log("Sending to OpenAI:", {
+      model: requestPayload.model,
+      inputLength: inputPrompt.length,
+      reasoning: requestPayload.reasoning,
+      verbosity: requestPayload.text,
+    });
 
     // Call OpenAI Responses API (GPT-5)
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
@@ -183,20 +262,33 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
         "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "gpt-5",
-        input: inputPrompt,
-        reasoning: { effort: reasoningEffort },
-        text: { verbosity: verbosity },
-      }),
+      body: JSON.stringify(requestPayload),
     });
 
     if (!openaiResponse.ok) {
-      throw new Error(`OpenAI API error: ${openaiResponse.status}`);
+      const errorBody = await openaiResponse.text();
+      console.error("OpenAI API error:", openaiResponse.status, errorBody);
+      throw new Error(`OpenAI API error: ${openaiResponse.status} - ${errorBody}`);
     }
 
     const data = await openaiResponse.json() as any;
-    const assistantMessage = data.output_text || "No response generated";
+    
+    // Log the full response structure for debugging
+    console.log("OpenAI response structure:", JSON.stringify(data, null, 2));
+    
+    // The Responses API returns output_text at the top level
+    // But let's handle multiple possible structures
+    const assistantMessage = data.output_text 
+      || data.choices?.[0]?.message?.content 
+      || data.text 
+      || "";
+
+    if (!assistantMessage) {
+      console.error("No message found in OpenAI response. Full data:", data);
+      throw new Error("No response generated by OpenAI");
+    }
+
+    console.log("Generated response length:", assistantMessage.length);
 
     return {
       summary: assistantMessage.substring(0, 500), // First 500 chars as summary
@@ -217,6 +309,16 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
  */
 async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string): Promise<void> {
   try {
+    // Build the References header properly for email threading
+    // It should include the entire chain of message IDs from the thread
+    const originalReferences = originalMessage.Headers?.find((h: any) => h.Name === "References")?.Value || "";
+    const referencesValue = originalReferences 
+      ? `${originalReferences} ${originalMessage.MessageID}`
+      : originalMessage.MessageID;
+
+    // Reply from the same address that received the email
+    const replyFromAddress = originalMessage.OriginalRecipient || originalMessage.ToFull?.[0]?.Email || originalMessage.To;
+
     const response = await fetch(env.POSTMARK_URL, {
       method: "POST",
       headers: {
@@ -225,7 +327,7 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
         "X-Postmark-Server-Token": env.POSTMARK_TOKEN,
       },
       body: JSON.stringify({
-        From: "requests@rallycollab.com",
+        From: replyFromAddress,
         To: originalMessage.FromFull?.Email || originalMessage.From,
         Subject: `Re: ${originalMessage.Subject}`,
         TextBody: replyBody,
@@ -237,7 +339,7 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
           },
           {
             Name: "References",
-            Value: originalMessage.MessageID,
+            Value: referencesValue,
           },
         ],
       }),
