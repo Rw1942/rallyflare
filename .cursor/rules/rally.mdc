@@ -1,0 +1,215 @@
+---
+alwaysApply: true
+---
+**Rally on Cloudflare: Developer Implementation Guide (POC)**
+*(Practical. Minimal. Fast.)*
+
+---
+
+### 🧭 Overview
+
+This document outlines exactly how to build a **proof-of-concept** of Rally using **Cloudflare Workers**, **D1**, and **Postmark**. The goal is to demonstrate the core workflow:
+
+1. **Receive an email** (via Postmark inbound webhook).
+2. **Parse and store** message metadata and participants.
+3. **Send the content to OpenAI** for summarization or contextual processing.
+4. **Send a reply email** via Postmark.
+5. **Expose a minimal management console** for context configuration and message browsing.
+
+This is not production-grade—just a fast, working prototype that mimics how Rally should feel: **instant, invisible, and email-native.**
+
+---
+
+## 🎯 Rally UX & App Behavior
+
+Think of Rally as *“reply-all automation with brains.”*
+Users never log into Rally to *use* it; they interact through email. The web console exists only for admins.
+
+* **User experience:**
+
+  * Someone sends or forwards an email to a Rally address (`requests@rallycollab.com`).
+  * Rally parses the thread and participants instantly.
+  * The content is summarized, classified, or routed by OpenAI.
+  * A structured reply or confirmation is emailed back—still inside the same thread.
+  * In the background, everything is logged, searchable, and auditable in D1.
+
+* **Admin console experience (Cloudflare Pages):**
+
+  * Clean single-page UI (React/Vite) showing incoming messages.
+  * Settings for each “project” (like AI model, system prompt/context).
+  * Manual re-send or re-process button.
+  * Cloudflare Access SSO for authentication—no login system needed.
+
+---
+
+## 🧩 Core Components
+
+| Component                    | Role                                                                        | Notes                                      |
+| ---------------------------- | --------------------------------------------------------------------------- | ------------------------------------------ |
+| **Cloudflare Worker**        | Handles Postmark inbound webhooks, calls OpenAI, sends replies via Postmark | Single `index.ts` worker file              |
+| **Cloudflare D1**            | Lightweight SQL database for messages, participants, settings               | Schema below                               |
+| **Cloudflare R2 (optional)** | Storage for large attachments                                               | Store pointer in D1                        |
+| **Cloudflare Pages**         | Minimal admin console                                                       | React/Vite SPA                             |
+| **Postmark**                 | Inbound + Outbound email                                                    | Use JSON inbound, API for outbound         |
+| **OpenAI API**               | LLM processing                                                              | Model choice configurable in admin console |
+
+---
+
+## ⚙️ Flow Summary
+
+### 1. **Inbound Email → Rally**
+
+* Postmark receives email → triggers webhook to Worker route `/postmark/inbound`.
+* Worker extracts:
+
+  * `From`, `To`, `Cc`, `MessageID`, `InReplyTo`, `References`
+  * subject, text, HTML, and attachments.
+* Worker writes normalized data to **D1**.
+* Large attachments stream to **R2** (store reference in D1).
+
+### 2. **AI Processing**
+
+* Worker retrieves “context” from `project_settings` table.
+* Sends the message text + context to OpenAI.
+* Saves summary or AI output back to D1 (`llm_summary`, `llm_reply`).
+
+### 3. **Reply (optional)**
+
+* Worker sends an outbound message through **Postmark /email**.
+* Includes:
+
+  * `In-Reply-To` and `References` headers.
+  * AI-generated or static response body.
+* Postmark enforces 10 MB total payload limit.
+
+### 4. **Admin Console**
+
+* Displays list of inbound messages.
+* Allows re-triggering an LLM run or resending via Postmark.
+* Editable fields for `project_settings` (model, system prompt, temperature).
+
+---
+
+## 🧱 D1 Schema (Minimal)
+
+```sql
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,
+  received_at TEXT NOT NULL,
+  subject TEXT,
+  message_id TEXT,
+  in_reply_to TEXT,
+  references TEXT,
+  from_name TEXT,
+  from_email TEXT,
+  raw_text TEXT,
+  raw_html TEXT,
+  llm_summary TEXT,
+  llm_reply TEXT,
+  postmark_message_id TEXT,
+  has_attachments INTEGER DEFAULT 0
+);
+
+CREATE TABLE participants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT NOT NULL,
+  kind TEXT CHECK(kind IN ('to','cc','bcc')),
+  name TEXT,
+  email TEXT
+);
+
+CREATE TABLE attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT NOT NULL,
+  filename TEXT,
+  mime TEXT,
+  size_bytes INTEGER,
+  r2_key TEXT
+);
+
+CREATE TABLE project_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_slug TEXT UNIQUE,
+  model TEXT,
+  system_prompt TEXT,
+  temperature REAL DEFAULT 0.2
+);
+```
+
+---
+
+## ⚡ Worker API Routes
+
+| Route               | Method | Purpose                                          |
+| ------------------- | ------ | ------------------------------------------------ |
+| `/postmark/inbound` | `POST` | Receive inbound message JSON, store, call OpenAI |
+| `/llm/compose`      | `POST` | Re-run OpenAI with message + context             |
+| `/send`             | `POST` | Send reply via Postmark                          |
+| `/messages`         | `GET`  | List messages for console                        |
+| `/messages/:id`     | `GET`  | Retrieve message detail                          |
+
+---
+
+## 🔐 Environment & Secrets
+
+Use `wrangler secret` for keys.
+
+```bash
+wrangler secret put POSTMARK_TOKEN
+wrangler secret put OPENAI_API_KEY
+```
+
+In `wrangler.toml`:
+
+```toml
+name = "rally-poc"
+main = "src/index.ts"
+compatibility_date = "2025-10-08"
+
+[vars]
+POSTMARK_URL = "https://api.postmarkapp.com/email"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rally_d1"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "rally-attachments"
+```
+
+---
+
+## 💬 Notes for the Developer
+
+* **Goal:** make Rally “feel invisible.” It should handle an inbound email in <2 seconds.
+* **Database**: small tables, no joins beyond basic queries.
+* **No custom auth**: gate console behind Cloudflare Access.
+* **Attachments**: skip for now unless easy; stub out R2 upload call.
+* **LLM prompt**: simple `system_prompt` + `user: raw_text`.
+* **Error handling**: log to console + insert `error_log` column in D1 later.
+* **Deployment:** `wrangler deploy` only.
+
+---
+
+## 🧪 Test Plan
+
+1. **Setup Postmark inbound webhook** → Worker route URL.
+2. **Send test email** to inbound stream.
+3. **Confirm D1 row created**.
+4. **Trigger OpenAI call manually** or inline; log LLM response.
+5. **Send reply** via `/send`.
+6. **View in console** on Cloudflare Pages.
+
+---
+
+## 🧩 Future Add-ons (Post-POC)
+
+* Replace Postmark inbound with **Cloudflare Email Workers**.
+* Add **Cloudflare Queues** for async LLM work.
+* Add **API keys per project** for SaaS-style tenants.
+* Expand **console** into full dashboard.
+
+---
+
+Would you like me to write the actual `index.ts` Worker and `wrangler.toml` next, so your developer can just copy-paste and deploy it?

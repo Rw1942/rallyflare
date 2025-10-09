@@ -181,3 +181,6 @@ build/
 
 # Turbo output
 .turbo/
+
+# Cloudflare secrets
+.dev.vars
