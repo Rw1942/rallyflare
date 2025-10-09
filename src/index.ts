@@ -1,4 +1,4 @@
-import { renderHtml } from "./renderHtml";
+import { renderDashboard } from "./renderHtml";
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -19,11 +19,11 @@ export default {
       return getMessageDetail(env, id);
     }
 
-    // Default route - show recent messages
-    const stmt = env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT 10");
+    // Default route - show dashboard with recent messages
+    const stmt = env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT 50");
     const { results } = await stmt.all();
 
-    return new Response(renderHtml(JSON.stringify(results, null, 2)), {
+    return new Response(renderDashboard(results as any[]), {
       headers: {
         "content-type": "text/html",
       },
@@ -56,10 +56,10 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Store message in D1
     await env.DB.prepare(`
       INSERT INTO messages (
-        id, received_at, subject, message_id, in_reply_to, references,
+        id, received_at, subject, message_id, in_reply_to, references_header,
         from_name, from_email, raw_text, raw_html,
-        postmark_message_id, has_attachments
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        postmark_message_id, has_attachments, direction
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       internalId,
       receivedAt,
@@ -72,7 +72,8 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       postmarkData.TextBody || "",
       postmarkData.HtmlBody || "",
       postmarkData.MessageID,
-      (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0
+      (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0,
+      'inbound'
     ).run();
 
     // Store participants (To)
@@ -119,7 +120,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 
     // Send reply email via Postmark
     if (llmResponse.reply) {
-      await sendReplyEmail(env, postmarkData, llmResponse.reply);
+      await sendReplyEmail(env, postmarkData, llmResponse.reply, internalId);
     }
 
     return new Response(JSON.stringify({
@@ -206,7 +207,7 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
 /**
  * Send reply email via Postmark
  */
-async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string): Promise<void> {
+async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string): Promise<void> {
   try {
     const response = await fetch(env.POSTMARK_URL, {
       method: "POST",
@@ -239,6 +240,29 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       console.error("Postmark send error:", response.status, errorText);
     } else {
       console.log("Reply sent successfully");
+      
+      // Store the outbound message in D1
+      const outboundId = crypto.randomUUID();
+      const sentAt = new Date().toISOString();
+      
+      await env.DB.prepare(`
+        INSERT INTO messages (
+          id, sent_at, received_at, subject, message_id, in_reply_to,
+          from_name, from_email, raw_text, direction, reply_to_message_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        outboundId,
+        sentAt,
+        sentAt, // Use sent_at for received_at to maintain compatibility
+        `Re: ${originalMessage.Subject}`,
+        null, // Will be set by Postmark after sending
+        originalMessage.MessageID,
+        "Rally",
+        "requests@rallycollab.com",
+        replyBody,
+        'outbound',
+        replyToMessageId
+      ).run();
     }
   } catch (error) {
     console.error("Error sending reply:", error);

@@ -4,7 +4,6 @@
 declare namespace Cloudflare {
 	interface Env {
 		DB: D1Database;
-		R2: R2Bucket;
 		POSTMARK_TOKEN: string;
 		POSTMARK_URL: string;
 		OPENAI_API_KEY: string;

@@ -13,12 +13,6 @@
       "database_name": "rally-database"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "R2",
-      "bucket_name": "rally-attachments"
-    }
-  ],
   "observability": {
     "enabled": true
   }

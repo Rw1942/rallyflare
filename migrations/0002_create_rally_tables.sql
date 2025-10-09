@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS messages (
   subject TEXT,
   message_id TEXT,
   in_reply_to TEXT,
-  references TEXT,
+  references_header TEXT,
   from_name TEXT,
   from_email TEXT,
   raw_text TEXT,

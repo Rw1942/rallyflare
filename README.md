@@ -11,8 +11,10 @@ Rally receives emails via Postmark, processes them with OpenAI, and sends contex
 - Store messages, participants, and metadata in D1
 - Process email content with OpenAI for intelligent responses
 - Send automated replies via Postmark API (preserving email threads)
+- **Beautiful admin dashboard** with modern, soft design
+- Separate views for incoming messages and outgoing replies
+- Real-time statistics and AI processing status
 - RESTful API for message management
-- Ready for admin console integration (Cloudflare Pages)
 
 ## Architecture
 
@@ -104,14 +106,29 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed instructions.
 3. Set webhook URL to: `https://your-worker-url.workers.dev/postmark/inbound`
 4. Configure your inbound email address or domain
 
+## Admin Dashboard
+
+Rally includes a beautiful, modern dashboard accessible at the root URL of your deployed Worker.
+
+**Features:**
+- Clean, soft design with gentle gradients and smooth interactions
+- Statistics overview (total messages, received, sent, AI-processed)
+- Separate sections for incoming and outgoing messages
+- Each message card shows sender, subject, time, and AI summary
+- Visual badges for attachments, AI processing, and reply status
+- Click any message to view full details
+- Responsive design for desktop, tablet, and mobile
+
+See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy and user story.
+
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `GET /` | GET | Admin dashboard (HTML) |
 | `POST /postmark/inbound` | POST | Receives Postmark webhook payloads |
 | `GET /messages` | GET | List all messages (JSON) |
 | `GET /messages/:id` | GET | Get message detail with participants |
-| `GET /` | GET | View recent messages (HTML) |
 
 ## How It Works
 
@@ -150,13 +167,15 @@ npx wrangler d1 execute rally-database --command "SELECT * FROM messages LIMIT 5
 rallyflare/
 ├── src/
 │   ├── index.ts           # Main Worker with webhook handling
-│   └── renderHtml.ts      # HTML rendering utilities
+│   └── renderHtml.ts      # Dashboard UI rendering
 ├── migrations/
 │   ├── 0001_create_comments_table.sql  # Original template migration
-│   └── 0002_create_rally_tables.sql    # Rally schema
+│   ├── 0002_create_rally_tables.sql    # Rally schema
+│   └── 0003_add_message_direction.sql  # Inbound/outbound tracking
 ├── wrangler.json          # Worker configuration
 ├── .dev.vars              # Local development secrets (gitignored)
 ├── POSTMARK_SETUP.md      # Detailed Postmark configuration guide
+├── DASHBOARD_GUIDE.md     # Dashboard design and user story
 └── README.md              # This file
 ```
 
@@ -174,7 +193,10 @@ WHERE project_slug = 'default';
 
 ## Next Steps
 
-- [ ] Build admin console UI (Cloudflare Pages + React)
+- [x] Build admin dashboard UI with modern design
+- [x] Separate incoming and outgoing message views
+- [ ] Add Settings page for configuration
+- [ ] Add AI Prompts configuration page
 - [ ] Add Cloudflare Access authentication
 - [ ] Implement R2 attachment storage
 - [ ] Add manual re-process/re-send functionality
