@@ -181,15 +181,20 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Process with OpenAI
     const llmResponse = await processWithOpenAI(env, internalId, postmarkData, rallyEmailAddress);
 
-    // Send reply email via Postmark
-    let sentAt: string | null = null;
-    if (llmResponse.reply) {
-      sentAt = await sendReplyEmail(env, postmarkData, llmResponse.reply, internalId);
-    }
-
     // Calculate total processing time (from receipt to reply sent)
     const processingEndTime = Date.now();
     const processingTimeMs = processingEndTime - processingStartTime;
+
+    // Send reply email via Postmark
+    let sentAt: string | null = null;
+    if (llmResponse.reply) {
+      sentAt = await sendReplyEmail(env, postmarkData, llmResponse.reply, internalId, {
+        tokensInput: llmResponse.tokensInput,
+        tokensOutput: llmResponse.tokensOutput,
+        processingTimeMs: processingTimeMs,
+        aiResponseTimeMs: llmResponse.aiResponseTimeMs,
+      });
+    }
 
     // Update message with LLM response, token usage, and performance metrics
     await env.DB.prepare(`
@@ -372,7 +377,12 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
  * Send reply email via Postmark
  * Returns the timestamp when the email was sent
  */
-async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string): Promise<string> {
+async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string, metrics?: {
+  tokensInput?: number;
+  tokensOutput?: number;
+  processingTimeMs?: number;
+  aiResponseTimeMs?: number;
+}): Promise<string> {
   try {
     // Build the References header properly for email threading
     // It should include the entire chain of message IDs from the thread
@@ -387,6 +397,28 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
 
     // Detect if the reply contains HTML (look for common HTML tags)
     const isHtml = /<(p|div|br|h[1-6]|ul|ol|li|table|strong|em|a)\b[^>]*>/i.test(replyBody);
+    
+    // Add metrics to the reply body if available
+    let finalReplyBody = replyBody;
+    if (metrics && (metrics.tokensInput || metrics.tokensOutput || metrics.processingTimeMs)) {
+      const metricsText = [];
+      if (metrics.tokensInput || metrics.tokensOutput) {
+        const totalTokens = (metrics.tokensInput || 0) + (metrics.tokensOutput || 0);
+        metricsText.push(`Tokens: ${totalTokens} (${metrics.tokensInput || 0} in, ${metrics.tokensOutput || 0} out)`);
+      }
+      if (metrics.processingTimeMs) {
+        const seconds = (metrics.processingTimeMs / 1000).toFixed(1);
+        metricsText.push(`Processing time: ${seconds}s`);
+      }
+      
+      if (metricsText.length > 0) {
+        if (isHtml) {
+          finalReplyBody += `<br><br><small style="color: #666; font-size: 0.8em;">Rally Stats: ${metricsText.join(' • ')}</small>`;
+        } else {
+          finalReplyBody += `\n\nRally Stats: ${metricsText.join(' • ')}`;
+        }
+      }
+    }
     
     // Prepare email body - if HTML, send both HTML and plain text versions
     const emailBody: any = {
@@ -409,11 +441,11 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
 
     if (isHtml) {
       // Send as HTML with plain text fallback
-      emailBody.HtmlBody = replyBody;
-      emailBody.TextBody = stripHtmlToText(replyBody);
+      emailBody.HtmlBody = finalReplyBody;
+      emailBody.TextBody = stripHtmlToText(finalReplyBody);
     } else {
       // Send as plain text only
-      emailBody.TextBody = replyBody;
+      emailBody.TextBody = finalReplyBody;
     }
 
     const response = await fetch(env.POSTMARK_URL, {
@@ -458,7 +490,7 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       originalMessage.MessageID,
       "Rally",
       "rally@rallycollab.com",
-      replyBody,
+      finalReplyBody,
       'outbound',
       replyToMessageId,
       originalEmailAddress?.email_address || null
