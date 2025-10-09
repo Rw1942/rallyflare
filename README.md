@@ -16,6 +16,7 @@ Rally receives emails via Postmark, processes them with OpenAI, and sends contex
 - Separate views for incoming messages and outgoing replies
 - Real-time statistics and AI processing status
 - **Performance metrics tracking** - see processing time, AI response time, and token usage for each message
+- **Email-specific AI prompts** - configure different AI behavior for different Rally email addresses
 - RESTful API for message management
 
 ## Architecture
@@ -61,10 +62,11 @@ npx wrangler d1 migrations apply rally-database --local
 **Important:** The database name in wrangler.json is `rally-database` (with hyphen, not underscore).
 
 This creates tables for:
-- `messages` - Email messages, AI processing results, message direction (inbound/outbound), and performance metrics
+- `messages` - Email messages, AI processing results, message direction (inbound/outbound), performance metrics, and recipient email address
 - `participants` - To/Cc/Bcc recipients
 - `attachments` - Attachment metadata (R2 storage coming soon)
-- `project_settings` - AI model configuration and system prompts
+- `project_settings` - Default AI model configuration and system prompts
+- `email_prompts` - Email-specific AI prompts for different Rally addresses
 
 **Performance tracking fields:**
 - `processing_time_ms` - Total time from email receipt to reply sent
@@ -135,11 +137,12 @@ Rally includes a beautiful, modern dashboard accessible at the root URL of your 
 - Clean, soft design with gentle gradients and smooth interactions
 - Statistics overview (total messages, received, sent, AI-processed)
 - Separate sections for incoming and outgoing messages
-- Each message card shows sender, subject, time, and AI summary
+- Each message card shows sender, subject, time, AI summary, and recipient email address
 - Visual badges for attachments, AI processing, and reply status
 - **Performance metrics badges** showing total processing time, AI response time, and token usage
 - Click any message to view full details
-- Settings page to configure AI system prompt
+- Settings page to configure default AI system prompt
+- **Email Prompts page** to manage AI behavior for specific email addresses
 - Responsive design for desktop, tablet, and mobile
 
 See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy and user story.
@@ -153,17 +156,22 @@ See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy an
 | `GET /messages` | GET | List all messages (JSON) |
 | `GET /messages/:id` | GET | Get message detail with participants |
 | `GET /settings` | GET | Settings page (HTML) |
-| `POST /settings` | POST | Update Rally's system prompt |
+| `POST /settings` | POST | Update Rally's default system prompt |
+| `GET /email-prompts` | GET | Email prompts management page (HTML) |
+| `POST /email-prompts` | POST | Create new email-specific prompt |
+| `PUT /email-prompts/:id` | PUT | Update email-specific prompt |
+| `DELETE /email-prompts/:id` | DELETE | Delete email-specific prompt |
 
 ## How It Works
 
-1. **Email arrives** at your Rally address (e.g., `requests@rallycollab.com`)
+1. **Email arrives** at your Rally address (e.g., `support@rallycollab.com`)
 2. **Postmark forwards** it to your Worker at `/postmark/inbound`
-3. **Worker stores** message data in D1
+3. **Worker stores** message data in D1, including the recipient email address
 4. **Content extracted** from TextBody, StrippedTextReply, or HtmlBody (handles forwarded emails)
-5. **GPT-5 processes** the email with low reasoning effort for fast, intelligent responses
-6. **Worker sends** an intelligent reply via Postmark API (preserving email threads)
-7. **Everything logged** in D1 for admin console review with full debugging info
+5. **Worker looks up** email-specific prompt for the recipient address, falls back to default if none found
+6. **GPT-5 processes** the email with the appropriate prompt for fast, intelligent responses
+7. **Worker sends** an intelligent reply via Postmark API (preserving email threads)
+8. **Everything logged** in D1 for admin console review with full debugging info
 
 ### Email Addressing
 
@@ -174,6 +182,18 @@ Rally uses a smart addressing strategy to maintain clean email threads:
 - **Threading**: Proper `In-Reply-To` and `References` headers keep conversations organized
 
 This means users see a consistent sender identity, but their replies route back to the correct Rally inbox.
+
+### Email-Specific AI Prompts
+
+Rally supports different AI behavior for different email addresses:
+
+- **Default Prompt**: Configured in Settings page, used as fallback for unknown addresses
+- **Email-Specific Prompts**: Configured in Email Prompts page, override default for specific addresses
+- **Automatic Detection**: Worker automatically detects recipient address and uses appropriate prompt
+- **Example Use Cases**:
+  - `support@rallycollab.com` - Customer support assistant with empathetic tone
+  - `sales@rallycollab.com` - Sales assistant for lead qualification
+  - `feedback@rallycollab.com` - Feedback collector with acknowledgment focus
 
 ## Development
 
@@ -226,13 +246,32 @@ rallyflare/
 
 ## Configuration
 
-Customize Rally's AI behavior through the Settings page at `/settings` or by directly editing the `project_settings` table in D1:
+### Default AI Behavior
+
+Customize Rally's default AI behavior through the Settings page at `/settings` or by directly editing the `project_settings` table in D1:
 
 ```sql
 UPDATE project_settings 
 SET system_prompt = 'You are Rally, a helpful assistant...'
 WHERE project_slug = 'default';
 ```
+
+### Email-Specific AI Behavior
+
+Configure different AI behavior for specific email addresses through the Email Prompts page at `/email-prompts` or by directly editing the `email_prompts` table:
+
+```sql
+-- Add email-specific prompt
+INSERT INTO email_prompts (email_address, system_prompt) 
+VALUES ('support@rallycollab.com', 'You are Rally, a customer support assistant...');
+
+-- Update existing prompt
+UPDATE email_prompts 
+SET system_prompt = 'Updated prompt...'
+WHERE email_address = 'support@rallycollab.com';
+```
+
+### Model Configuration
 
 Note: GPT-5 uses `reasoning.effort` and `text.verbosity` instead of temperature. These are configured in the Worker code:
 - `reasoning.effort: "low"` - Fast responses suitable for email
@@ -249,6 +288,7 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - [x] Add comprehensive error logging and debugging
 - [x] Add Settings page with AI prompt configuration
 - [x] Track performance metrics (processing time, AI response time, token usage)
+- [x] Add email-specific AI prompt configuration
 - [ ] Add Cloudflare Access authentication
 - [ ] Implement R2 attachment storage
 - [ ] Add manual re-process/re-send functionality
@@ -283,6 +323,12 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - Verify `POSTMARK_TOKEN` is set
 - Check sender domain is verified in Postmark
 - Ensure outbound message stream is enabled
+
+**Email-specific prompts not working?**
+- Check that the email address in `email_prompts` table matches exactly (case-sensitive)
+- Verify the email address is being captured correctly in the `messages.email_address` field
+- Check Worker logs to see which prompt is being used: `npx wrangler tail`
+- Ensure the migration was applied: `npx wrangler d1 migrations apply rally-database --remote`
 
 ## Contributing
 

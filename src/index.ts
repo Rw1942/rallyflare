@@ -1,4 +1,4 @@
-import { renderDashboard, renderSettings } from "./renderHtml";
+import { renderDashboard, renderSettings, renderEmailPrompts } from "./renderHtml";
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -26,6 +26,30 @@ export default {
 
     if (path === "/settings" && request.method === "POST") {
       return updateSettings(request, env);
+    }
+
+    // Email prompts management
+    if (path === "/email-prompts" && request.method === "GET") {
+      return getEmailPrompts(env);
+    }
+
+    if (path === "/email-prompts" && request.method === "POST") {
+      return createEmailPrompt(request, env);
+    }
+
+    if (path.startsWith("/email-prompts/") && request.method === "PUT") {
+      const id = path.split("/")[2];
+      return updateEmailPrompt(request, env, id);
+    }
+
+    if (path.startsWith("/email-prompts/") && request.method === "DELETE") {
+      const id = path.split("/")[2];
+      return deleteEmailPrompt(env, id);
+    }
+
+    // Email prompts page
+    if (path === "/email-prompts" && request.method === "GET") {
+      return getEmailPromptsPage(env);
     }
 
     // Default route - show dashboard with recent messages
@@ -95,13 +119,16 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     const toList = postmarkData.ToFull || [];
     const ccList = postmarkData.CcFull || [];
 
+    // Extract the Rally email address that received this message
+    const rallyEmailAddress = postmarkData.OriginalRecipient || postmarkData.ToFull?.[0]?.Email || postmarkData.To;
+
     // Store message in D1
     await env.DB.prepare(`
       INSERT INTO messages (
         id, received_at, subject, message_id, in_reply_to, references_header,
         from_name, from_email, raw_text, raw_html,
-        postmark_message_id, has_attachments, direction
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        postmark_message_id, has_attachments, direction, email_address
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       internalId,
       receivedAt,
@@ -115,7 +142,8 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       postmarkData.HtmlBody || "",
       postmarkData.MessageID,
       (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0,
-      'inbound'
+      'inbound',
+      rallyEmailAddress
     ).run();
 
     // Store participants (To)
@@ -151,7 +179,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     }
 
     // Process with OpenAI
-    const llmResponse = await processWithOpenAI(env, internalId, postmarkData);
+    const llmResponse = await processWithOpenAI(env, internalId, postmarkData, rallyEmailAddress);
 
     // Send reply email via Postmark
     let sentAt: string | null = null;
@@ -205,8 +233,9 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 /**
  * Process email content with OpenAI
  * Fetches thread history from D1 and builds it into the input prompt for better context.
+ * Uses email-specific prompts when available, falls back to default prompt.
  */
-async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage): Promise<{ 
+async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage, rallyEmailAddress: string): Promise<{ 
   summary: string; 
   reply: string; 
   tokensInput?: number; 
@@ -214,12 +243,23 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
   aiResponseTimeMs?: number;
 }> {
   try {
-    // Get project settings
-    const settingsResult = await env.DB.prepare(
-      "SELECT * FROM project_settings WHERE project_slug = 'default' LIMIT 1"
-    ).first();
+    // Get email-specific prompt first
+    const emailPromptResult = await env.DB.prepare(
+      "SELECT system_prompt FROM email_prompts WHERE email_address = ? LIMIT 1"
+    ).bind(rallyEmailAddress).first();
 
-    const systemPrompt = settingsResult?.system_prompt as string || "You are Rally, an intelligent email assistant.";
+    let systemPrompt: string;
+    if (emailPromptResult?.system_prompt) {
+      systemPrompt = emailPromptResult.system_prompt as string;
+      console.log(`Using email-specific prompt for ${rallyEmailAddress}`);
+    } else {
+      // Fall back to default project settings
+      const settingsResult = await env.DB.prepare(
+        "SELECT * FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+      ).first();
+      systemPrompt = settingsResult?.system_prompt as string || "You are Rally, an intelligent email assistant.";
+      console.log(`Using default prompt for ${rallyEmailAddress}`);
+    }
 
     // Fetch thread history: Get up to 5 previous messages in the chain
     // Use recursive CTE to traverse the thread via in_reply_to
@@ -399,11 +439,16 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
     // Store the outbound message in D1
     const outboundId = crypto.randomUUID();
     
+    // Get the email address from the original message
+    const originalEmailAddress = await env.DB.prepare(
+      "SELECT email_address FROM messages WHERE id = ?"
+    ).bind(replyToMessageId).first();
+
     await env.DB.prepare(`
       INSERT INTO messages (
         id, sent_at, received_at, subject, message_id, in_reply_to,
-        from_name, from_email, raw_text, direction, reply_to_message_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        from_name, from_email, raw_text, direction, reply_to_message_id, email_address
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       outboundId,
       sentAt,
@@ -415,7 +460,8 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       "rally@rallycollab.com",
       replyBody,
       'outbound',
-      replyToMessageId
+      replyToMessageId,
+      originalEmailAddress?.email_address || null
     ).run();
     
     return sentAt;
@@ -511,6 +557,121 @@ async function updateSettings(request: Request, env: Env): Promise<Response> {
 
   } catch (error) {
     console.error("Error updating settings:", error);
+    return new Response(JSON.stringify({ 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+/**
+ * Get email prompts page
+ */
+async function getEmailPromptsPage(env: Env): Promise<Response> {
+  const stmt = env.DB.prepare("SELECT * FROM email_prompts ORDER BY email_address");
+  const { results } = await stmt.all();
+
+  return new Response(renderEmailPrompts(results as any[]), {
+    headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Get all email prompts (API)
+ */
+async function getEmailPrompts(env: Env): Promise<Response> {
+  const stmt = env.DB.prepare("SELECT * FROM email_prompts ORDER BY email_address");
+  const { results } = await stmt.all();
+
+  return new Response(JSON.stringify(results, null, 2), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * Create a new email prompt
+ */
+async function createEmailPrompt(request: Request, env: Env): Promise<Response> {
+  try {
+    const data = await request.json() as { email_address: string; system_prompt: string };
+
+    if (!data.email_address || !data.system_prompt) {
+      return new Response(JSON.stringify({ error: "Email address and system prompt are required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    await env.DB.prepare(`
+      INSERT INTO email_prompts (email_address, system_prompt)
+      VALUES (?, ?)
+    `).bind(data.email_address, data.system_prompt).run();
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "content-type": "application/json" },
+    });
+
+  } catch (error) {
+    console.error("Error creating email prompt:", error);
+    return new Response(JSON.stringify({ 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+/**
+ * Update an existing email prompt
+ */
+async function updateEmailPrompt(request: Request, env: Env, id: string): Promise<Response> {
+  try {
+    const data = await request.json() as { email_address: string; system_prompt: string };
+
+    if (!data.email_address || !data.system_prompt) {
+      return new Response(JSON.stringify({ error: "Email address and system prompt are required" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+
+    await env.DB.prepare(`
+      UPDATE email_prompts 
+      SET email_address = ?, system_prompt = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(data.email_address, data.system_prompt, id).run();
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "content-type": "application/json" },
+    });
+
+  } catch (error) {
+    console.error("Error updating email prompt:", error);
+    return new Response(JSON.stringify({ 
+      error: error instanceof Error ? error.message : "Unknown error" 
+    }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
+/**
+ * Delete an email prompt
+ */
+async function deleteEmailPrompt(env: Env, id: string): Promise<Response> {
+  try {
+    await env.DB.prepare("DELETE FROM email_prompts WHERE id = ?").bind(id).run();
+
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { "content-type": "application/json" },
+    });
+
+  } catch (error) {
+    console.error("Error deleting email prompt:", error);
     return new Response(JSON.stringify({ 
       error: error instanceof Error ? error.message : "Unknown error" 
     }), {
