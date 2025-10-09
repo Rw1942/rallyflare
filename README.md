@@ -112,12 +112,73 @@ npx wrangler deploy
 
 You'll get a URL like: `https://rallyflare.your-subdomain.workers.dev`
 
-**Deployment Checklist:**
-1. Run migrations on production database: `npx wrangler d1 migrations apply rally-database --remote`
-2. Verify secrets are set: `npx wrangler secret list`
-3. Deploy worker: `npx wrangler deploy`
-4. Test the deployment by sending an email to your Rally address
-5. Check logs: `npx wrangler tail`
+## Deployment Workflow
+
+### Standard Deployment Process
+
+When making changes to Rally, follow this workflow:
+
+1. **Check current status:**
+   ```bash
+   git status
+   ```
+
+2. **Stage your changes:**
+   ```bash
+   git add .
+   ```
+
+3. **Commit with descriptive message:**
+   ```bash
+   git commit -m "Brief description of changes
+
+   - Detailed bullet points of what changed
+   - Include any new features or fixes
+   - Mention database changes if applicable"
+   ```
+
+4. **Push to repository:**
+   ```bash
+   git push origin main
+   ```
+
+5. **Apply database migrations (if any):**
+   ```bash
+   npx wrangler d1 migrations apply rally-database --remote
+   ```
+
+6. **Deploy Worker:**
+   ```bash
+   npx wrangler deploy
+   ```
+
+### Database Migration Best Practices
+
+- **Always run migrations before deploying** the Worker code
+- **Test migrations locally first:** `npx wrangler d1 migrations apply rally-database --local`
+- **Use descriptive migration names:** `0006_add_email_specific_prompts.sql`
+- **Include rollback information** in migration comments if needed
+- **Check migration status:** `npx wrangler d1 migrations list rally-database --remote`
+
+### Git Best Practices
+
+- **Write clear commit messages** that explain what and why
+- **Use bullet points** for multiple changes in one commit
+- **Keep commits focused** - one feature or fix per commit
+- **Test locally** before committing
+- **Push frequently** to avoid losing work
+
+### Deployment Checklist
+
+Before deploying to production:
+
+- [ ] All changes committed and pushed to git
+- [ ] Database migrations applied to remote database
+- [ ] Secrets are set: `npx wrangler secret list`
+- [ ] Local testing completed
+- [ ] Worker deploys successfully: `npx wrangler deploy`
+- [ ] Test the deployment by sending an email to your Rally address
+- [ ] Check logs: `npx wrangler tail`
 
 ### 7. Configure Postmark Webhook
 
@@ -329,6 +390,13 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - Verify the email address is being captured correctly in the `messages.email_address` field
 - Check Worker logs to see which prompt is being used: `npx wrangler tail`
 - Ensure the migration was applied: `npx wrangler d1 migrations apply rally-database --remote`
+
+**Deployment issues?**
+- **Migration failed:** Check if tables already exist, use `INSERT OR IGNORE` for sample data
+- **Worker won't deploy:** Verify all TypeScript compiles: `npx tsc --noEmit`
+- **Database connection errors:** Ensure D1 database ID is correct in `wrangler.json`
+- **Secrets missing:** Set required secrets: `npx wrangler secret put POSTMARK_TOKEN`
+- **Git conflicts:** Resolve conflicts before deploying: `git status` and `git pull origin main`
 
 ## Contributing
 

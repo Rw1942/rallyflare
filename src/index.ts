@@ -28,8 +28,13 @@ export default {
       return updateSettings(request, env);
     }
 
-    // Email prompts management
+    // Email prompts page (HTML) - must come before API routes
     if (path === "/email-prompts" && request.method === "GET") {
+      return getEmailPromptsPage(env);
+    }
+
+    // Email prompts API endpoints
+    if (path === "/api/email-prompts" && request.method === "GET") {
       return getEmailPrompts(env);
     }
 
@@ -45,11 +50,6 @@ export default {
     if (path.startsWith("/email-prompts/") && request.method === "DELETE") {
       const id = path.split("/")[2];
       return deleteEmailPrompt(env, id);
-    }
-
-    // Email prompts page
-    if (path === "/email-prompts" && request.method === "GET") {
-      return getEmailPromptsPage(env);
     }
 
     // Default route - show dashboard with recent messages

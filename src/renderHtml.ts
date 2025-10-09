@@ -351,6 +351,7 @@ export function renderDashboard(messages: Message[]) {
             <nav class="nav">
               <a href="/" class="nav-button">Activity</a>
               <a href="/settings" class="nav-button">Settings</a>
+              <a href="/email-prompts" class="nav-button">Email Prompts</a>
             </nav>
         </header>
           
