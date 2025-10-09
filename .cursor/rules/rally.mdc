@@ -212,4 +212,4 @@ bucket_name = "rally-attachments"
 
 ---
 
-Keep code simple and organized with brief comments, especially if you can relate it to the user journey. 
+Keep code simple and organized with brief comments, especially if you can relate it to the user journey. If updating the readme, just do you best to ensure it's giving an acurate overview of the project; not just the updates to it recently. 

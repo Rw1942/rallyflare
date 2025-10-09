@@ -54,10 +54,10 @@ npx wrangler d1 migrations apply rally-database
 ```
 
 This creates tables for:
-- `messages` - Email messages and AI processing results
+- `messages` - Email messages, AI processing results, and message direction (inbound/outbound)
 - `participants` - To/Cc/Bcc recipients
 - `attachments` - Attachment metadata (R2 storage coming soon)
-- `project_settings` - AI model configuration per project
+- `project_settings` - AI model configuration and system prompts
 
 ### 4. Configure Secrets
 
@@ -118,6 +118,7 @@ Rally includes a beautiful, modern dashboard accessible at the root URL of your 
 - Each message card shows sender, subject, time, and AI summary
 - Visual badges for attachments, AI processing, and reply status
 - Click any message to view full details
+- Settings page to configure AI system prompt
 - Responsive design for desktop, tablet, and mobile
 
 See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy and user story.
@@ -130,6 +131,8 @@ See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy an
 | `POST /postmark/inbound` | POST | Receives Postmark webhook payloads |
 | `GET /messages` | GET | List all messages (JSON) |
 | `GET /messages/:id` | GET | Get message detail with participants |
+| `GET /settings` | GET | Settings page (HTML) |
+| `POST /settings` | POST | Update Rally's system prompt |
 
 ## How It Works
 
@@ -140,6 +143,16 @@ See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for complete design philosophy an
 5. **GPT-5 processes** the email with low reasoning effort for fast, intelligent responses
 6. **Worker sends** an intelligent reply via Postmark API (preserving email threads)
 7. **Everything logged** in D1 for admin console review with full debugging info
+
+### Email Addressing
+
+Rally uses a smart addressing strategy to maintain clean email threads:
+
+- **From Address**: All outbound emails come from `rally@rallycollab.com` for consistent branding
+- **Reply-To Address**: Set to the original Rally inbox the user contacted (e.g., `requests@rallycollab.com`)
+- **Threading**: Proper `In-Reply-To` and `References` headers keep conversations organized
+
+This means users see a consistent sender identity, but their replies route back to the correct Rally inbox.
 
 ## Development
 
@@ -169,11 +182,12 @@ npx wrangler d1 execute rally-database --command "SELECT * FROM messages LIMIT 5
 rallyflare/
 ├── src/
 │   ├── index.ts           # Main Worker with webhook handling
-│   └── renderHtml.ts      # Dashboard UI rendering
+│   └── renderHtml.ts      # Dashboard and settings UI rendering
 ├── migrations/
 │   ├── 0001_create_comments_table.sql  # Original template migration
 │   ├── 0002_create_rally_tables.sql    # Rally schema
-│   └── 0003_add_message_direction.sql  # Inbound/outbound tracking
+│   ├── 0003_add_message_direction.sql  # Inbound/outbound tracking
+│   └── 0004_update_model_to_gpt4o.sql  # GPT-5 migration
 ├── wrangler.json          # Worker configuration
 ├── .dev.vars              # Local development secrets (gitignored)
 ├── POSTMARK_SETUP.md      # Detailed Postmark configuration guide
@@ -183,18 +197,19 @@ rallyflare/
 
 ## Configuration
 
-Edit `project_settings` in D1 to customize AI behavior:
+Customize Rally's AI behavior through the Settings page at `/settings` or by directly editing the `project_settings` table in D1:
 
 ```sql
 UPDATE project_settings 
-SET model = 'gpt-5', 
-    system_prompt = 'You are Rally, a helpful assistant...'
+SET system_prompt = 'You are Rally, a helpful assistant...'
 WHERE project_slug = 'default';
 ```
 
-Note: GPT-5 uses `reasoning.effort` and `text.verbosity` instead of temperature. These are set in the Worker code:
+Note: GPT-5 uses `reasoning.effort` and `text.verbosity` instead of temperature. These are configured in the Worker code:
 - `reasoning.effort: "low"` - Fast responses suitable for email
 - `text.verbosity: "low"` - Concise replies
+
+The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses` endpoint).
 
 ## Next Steps
 
@@ -203,8 +218,7 @@ Note: GPT-5 uses `reasoning.effort` and `text.verbosity` instead of temperature.
 - [x] Upgrade to GPT-5 with Responses API
 - [x] Handle forwarded email threads and HTML-only emails
 - [x] Add comprehensive error logging and debugging
-- [ ] Add Settings page for configuration
-- [ ] Add AI Prompts configuration page
+- [x] Add Settings page with AI prompt configuration
 - [ ] Add Cloudflare Access authentication
 - [ ] Implement R2 attachment storage
 - [ ] Add manual re-process/re-send functionality
