@@ -77,6 +77,9 @@ function stripHtmlToText(html: string): string {
 async function handlePostmarkInbound(request: Request, env: Env): Promise<Response> {
   try {
     const postmarkData = await request.json() as PostmarkInboundMessage;
+    
+    // Track processing time from the moment we receive the email
+    const processingStartTime = Date.now();
 
     console.log("Received inbound email:", {
       from: postmarkData.FromFull?.Email,
@@ -150,22 +153,38 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Process with OpenAI
     const llmResponse = await processWithOpenAI(env, internalId, postmarkData);
 
-    // Update message with LLM response
+    // Send reply email via Postmark
+    let sentAt: string | null = null;
+    if (llmResponse.reply) {
+      sentAt = await sendReplyEmail(env, postmarkData, llmResponse.reply, internalId);
+    }
+
+    // Calculate total processing time (from receipt to reply sent)
+    const processingEndTime = Date.now();
+    const processingTimeMs = processingEndTime - processingStartTime;
+
+    // Update message with LLM response, token usage, and performance metrics
     await env.DB.prepare(`
       UPDATE messages
-      SET llm_summary = ?, llm_reply = ?
+      SET llm_summary = ?, llm_reply = ?, tokens_input = ?, tokens_output = ?, 
+          processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?
       WHERE id = ?
-    `).bind(llmResponse.summary, llmResponse.reply, internalId).run();
-
-    // Send reply email via Postmark
-    if (llmResponse.reply) {
-      await sendReplyEmail(env, postmarkData, llmResponse.reply, internalId);
-    }
+    `).bind(
+      llmResponse.summary, 
+      llmResponse.reply, 
+      llmResponse.tokensInput || null,
+      llmResponse.tokensOutput || null,
+      processingTimeMs,
+      llmResponse.aiResponseTimeMs || null,
+      sentAt,
+      internalId
+    ).run();
 
     return new Response(JSON.stringify({
       success: true,
       messageId: internalId,
       llm: llmResponse,
+      processingTimeMs,
     }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -187,7 +206,13 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
  * Process email content with OpenAI
  * Uses GPT-5 with the Responses API for optimal email understanding and generation
  */
-async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage): Promise<{ summary: string; reply: string }> {
+async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage): Promise<{ 
+  summary: string; 
+  reply: string; 
+  tokensInput?: number; 
+  tokensOutput?: number;
+  aiResponseTimeMs?: number;
+}> {
   try {
     // Get project settings - these control how Rally thinks and responds
     const settingsResult = await env.DB.prepare(
@@ -255,6 +280,9 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       verbosity: requestPayload.text,
     });
 
+    // Track AI response time
+    const aiStartTime = Date.now();
+    
     // Call OpenAI Responses API (GPT-5)
     const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -272,9 +300,22 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     }
 
     const data = await openaiResponse.json() as any;
+    const aiEndTime = Date.now();
+    const aiResponseTimeMs = aiEndTime - aiStartTime;
     
     // Log the full response structure for debugging
     console.log("OpenAI response structure:", JSON.stringify(data, null, 2));
+    
+    // Extract token usage from the response
+    // GPT-5 Responses API typically includes usage information
+    const tokensInput = data.usage?.input_tokens || data.usage?.prompt_tokens || undefined;
+    const tokensOutput = data.usage?.output_tokens || data.usage?.completion_tokens || undefined;
+    
+    console.log("OpenAI performance:", { 
+      responseTimeMs: aiResponseTimeMs,
+      tokensInput, 
+      tokensOutput 
+    });
     
     // GPT-5 Responses API structure:
     // data.output is an array with reasoning and message items
@@ -309,6 +350,9 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     return {
       summary: assistantMessage.substring(0, 500), // First 500 chars as summary
       reply: assistantMessage,
+      tokensInput,
+      tokensOutput,
+      aiResponseTimeMs,
     };
 
   } catch (error) {
@@ -316,14 +360,18 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     return {
       summary: "Error processing with AI",
       reply: "Thank you for your email. We've received it and will respond shortly.",
+      tokensInput: undefined,
+      tokensOutput: undefined,
+      aiResponseTimeMs: undefined,
     };
   }
 }
 
 /**
  * Send reply email via Postmark
+ * Returns the timestamp when the email was sent
  */
-async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string): Promise<void> {
+async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string): Promise<string> {
   try {
     // Build the References header properly for email threading
     // It should include the entire chain of message IDs from the thread
@@ -377,37 +425,42 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       body: JSON.stringify(emailBody),
     });
 
+    const sentAt = new Date().toISOString();
+    
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Postmark send error:", response.status, errorText);
-    } else {
-      console.log("Reply sent successfully");
-      
-      // Store the outbound message in D1
-      const outboundId = crypto.randomUUID();
-      const sentAt = new Date().toISOString();
-      
-      await env.DB.prepare(`
-        INSERT INTO messages (
-          id, sent_at, received_at, subject, message_id, in_reply_to,
-          from_name, from_email, raw_text, direction, reply_to_message_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        outboundId,
-        sentAt,
-        sentAt, // Use sent_at for received_at to maintain compatibility
-        `Re: ${originalMessage.Subject}`,
-        null, // Will be set by Postmark after sending
-        originalMessage.MessageID,
-        "Rally",
-        "rally@rallycollab.com",
-        replyBody,
-        'outbound',
-        replyToMessageId
-      ).run();
+      return sentAt; // Return timestamp even on error
     }
+    
+    console.log("Reply sent successfully");
+    
+    // Store the outbound message in D1
+    const outboundId = crypto.randomUUID();
+    
+    await env.DB.prepare(`
+      INSERT INTO messages (
+        id, sent_at, received_at, subject, message_id, in_reply_to,
+        from_name, from_email, raw_text, direction, reply_to_message_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      outboundId,
+      sentAt,
+      sentAt, // Use sent_at for received_at to maintain compatibility
+      `Re: ${originalMessage.Subject}`,
+      null, // Will be set by Postmark after sending
+      originalMessage.MessageID,
+      "Rally",
+      "rally@rallycollab.com",
+      replyBody,
+      'outbound',
+      replyToMessageId
+    ).run();
+    
+    return sentAt;
   } catch (error) {
     console.error("Error sending reply:", error);
+    return new Date().toISOString(); // Return timestamp even on error
   }
 }
 

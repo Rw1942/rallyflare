@@ -10,6 +10,10 @@ interface Message {
   llm_reply?: string;
   has_attachments?: number;
   reply_to_message_id?: string;
+  processing_time_ms?: number;
+  ai_response_time_ms?: number;
+  tokens_input?: number;
+  tokens_output?: number;
 }
 
 export function renderDashboard(messages: Message[]) {
@@ -274,6 +278,16 @@ export function renderDashboard(messages: Message[]) {
             color: #15803d;
           }
           
+          .badge.performance {
+            background: #f0f9ff;
+            color: #0369a1;
+          }
+          
+          .badge.tokens {
+            background: #faf5ff;
+            color: #7c3aed;
+          }
+          
           .empty-state {
             text-align: center;
             padding: 4rem 2rem;
@@ -389,6 +403,19 @@ function renderMessageCard(msg: Message, type: 'inbound' | 'outbound'): string {
   const aiProcessed = !!msg.llm_summary;
   const hasReply = !!msg.llm_reply;
   
+  // Format performance metrics
+  const processingTimeDisplay = msg.processing_time_ms 
+    ? formatProcessingTime(msg.processing_time_ms) 
+    : null;
+  
+  const aiResponseTimeDisplay = msg.ai_response_time_ms
+    ? formatProcessingTime(msg.ai_response_time_ms)
+    : null;
+  
+  const tokenDisplay = (msg.tokens_input && msg.tokens_output)
+    ? `${formatNumber(msg.tokens_input + msg.tokens_output)} tokens`
+    : null;
+  
   return `
     <div class="message-card" data-message-id="${msg.id}">
       <div class="message-header">
@@ -404,6 +431,9 @@ function renderMessageCard(msg: Message, type: 'inbound' | 'outbound'): string {
         ${hasAttachment ? '<span class="badge has-attachment">📎 Attachment</span>' : ''}
         ${aiProcessed ? '<span class="badge ai-processed">✨ AI Processed</span>' : ''}
         ${hasReply && type === 'inbound' ? '<span class="badge replied">✓ Replied</span>' : ''}
+        ${processingTimeDisplay && type === 'inbound' ? `<span class="badge performance">⚡ Total: ${processingTimeDisplay}</span>` : ''}
+        ${aiResponseTimeDisplay && type === 'inbound' ? `<span class="badge performance">🤖 AI: ${aiResponseTimeDisplay}</span>` : ''}
+        ${tokenDisplay && type === 'inbound' ? `<span class="badge tokens">🔢 ${tokenDisplay}</span>` : ''}
       </div>
     </div>
   `;
@@ -454,6 +484,19 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function formatProcessingTime(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = (ms / 1000).toFixed(1);
+  return `${seconds}s`;
+}
+
+function formatNumber(num: number): string {
+  if (num >= 1000) {
+    return `${(num / 1000).toFixed(1)}k`;
+  }
+  return num.toString();
 }
 
 // Settings page for editing system prompt
