@@ -15,6 +15,7 @@ Rally receives emails via Postmark, processes them with GPT-5 (including full co
 - 🎨 **Beautiful admin dashboard** with modern, soft design
 - 📊 **Performance metrics** - processing time, AI response time, token usage
 - ✉️ **Email-specific AI prompts** - different AI behavior per email address
+- 👥 **User tracking & compliance** - GDPR-compliant contact management with consent tracking
 - 🔍 Full RESTful API for message management
 - ⚡ Edge-deployed for instant response times
 
@@ -129,6 +130,18 @@ This creates tables for:
 **`email_prompts`** - Email-specific AI behavior
 - Email address → custom system prompt mapping
 - Allows different AI personalities per Rally inbox
+
+**`users`** - User tracking and compliance
+- Email address, name, first/last seen timestamps
+- Message counts (sent/received)
+- Consent tracking (email, data processing)
+- Opt-out status, IP address, user agent
+- GDPR data subject rights tracking
+
+**`user_interactions`** - Interaction audit trail
+- Complete log of all user interactions
+- Links to messages, includes IP and user agent
+- Timestamped for compliance reporting
 
 ### 4. Configure Secrets
 
@@ -272,6 +285,14 @@ Rally includes a beautiful, modern dashboard accessible at the root URL of your 
 - Visual cards showing email → prompt mapping
 - Override default behavior per Rally inbox
 
+**Users Page** (`/users`)
+- View all contacts who have interacted with Rally
+- Statistics: total users, active users, opted-out users
+- Compliance indicators: email consent, data processing consent
+- Message counts per user (sent/received)
+- First seen and last seen timestamps
+- Opt-out status tracking
+
 **Design**: Soft gradients, rounded corners, smooth hover effects, responsive for all devices. See [DASHBOARD_GUIDE.md](./DASHBOARD_GUIDE.md) for full design philosophy.
 
 ## API Endpoints
@@ -288,19 +309,26 @@ Rally includes a beautiful, modern dashboard accessible at the root URL of your 
 | `POST /email-prompts` | POST | Create new email-specific prompt |
 | `PUT /email-prompts/:id` | PUT | Update email-specific prompt |
 | `DELETE /email-prompts/:id` | DELETE | Delete email-specific prompt |
+| `GET /users` | GET | Users & compliance management page (HTML) |
+| `GET /users/:email` | GET | Get user detail with interaction history (JSON) |
+| `GET /api/users` | GET | List all users (JSON) |
 
 ## How It Works
 
 1. **Email arrives** at your Rally address (e.g., `support@rallycollab.com`)
 2. **Postmark forwards** it to your Worker at `/postmark/inbound`
-3. **Worker stores** message data in D1, including the recipient email address
-4. **Content extracted** from TextBody, StrippedTextReply, or HtmlBody (handles forwarded emails)
-5. **Thread history retrieved** via recursive CTE - fetches up to 5 previous messages in the conversation
-6. **Worker looks up** email-specific prompt for the recipient address (falls back to default)
-7. **GPT-5 processes** the email with thread context and appropriate prompt
-8. **Worker sends** an intelligent reply via Postmark (preserving email threads with proper headers)
-9. **Performance metrics captured** - total processing time, AI response time, token usage
-10. **Everything logged** in D1 for admin console with full debugging info
+3. **Worker extracts** compliance data (IP address, user agent) from request headers
+4. **User tracking** - Creates or updates user record with email, name, timestamps, consent data
+5. **Worker stores** message data in D1, including the recipient email address
+6. **Interaction logged** - Audit trail entry created in `user_interactions` table
+7. **Content extracted** from TextBody, StrippedTextReply, or HtmlBody (handles forwarded emails)
+8. **Thread history retrieved** via recursive CTE - fetches up to 5 previous messages in the conversation
+9. **Worker looks up** email-specific prompt for the recipient address (falls back to default)
+10. **GPT-5 processes** the email with thread context and appropriate prompt
+11. **Worker sends** an intelligent reply via Postmark (preserving email threads with proper headers)
+12. **Outbound interaction logged** - User record updated with received message count
+13. **Performance metrics captured** - total processing time, AI response time, token usage
+14. **Everything logged** in D1 for admin console with full debugging info
 
 ### Email Addressing
 
@@ -324,6 +352,21 @@ Rally maintains conversation context across multiple emails:
 
 This means Rally remembers what was discussed earlier in the conversation, leading to more intelligent and contextual responses.
 
+### User Tracking & Compliance
+
+Rally automatically tracks all users who interact via email, with GDPR-compliant data collection:
+
+- **Automatic User Creation**: New email addresses are captured on first interaction
+- **Interaction Tracking**: Every inbound/outbound message updates user records
+- **Compliance Data**: IP address, user agent, timestamps for GDPR requirements
+- **Consent Management**: Tracks email consent and data processing consent (defaults to `true` for email senders)
+- **Opt-Out Support**: Users can be marked as opted-out with timestamps
+- **Data Subject Rights**: Fields for tracking export requests, deletion requests
+- **Audit Trail**: Complete interaction history in `user_interactions` table
+- **Privacy-First**: User tracking errors don't break email processing
+
+**Admin Interface**: View all users at `/users` with statistics, consent indicators, and message counts.
+
 ### Email-Specific AI Prompts
 
 Rally supports different AI behavior for different email addresses:
@@ -335,6 +378,18 @@ Rally supports different AI behavior for different email addresses:
   - `support@rallycollab.com` - Customer support assistant with empathetic tone
   - `sales@rallycollab.com` - Sales assistant for lead qualification
   - `feedback@rallycollab.com` - Feedback collector with acknowledgment focus
+
+### Compliance & GDPR
+
+Rally includes built-in features for GDPR compliance:
+
+- **Lawful Basis**: Automatic consent tracking (legitimate interest for email senders)
+- **Right to Access**: User detail endpoint shows all stored data
+- **Right to Erasure**: Deletion request tracking (manual deletion process)
+- **Right to Data Portability**: Export request tracking
+- **Transparency**: Full interaction audit trail with timestamps
+- **IP & User Agent**: Captured for security and fraud prevention
+- **Opt-Out Mechanism**: Flag users who request to stop receiving emails
 
 ## Development
 
@@ -378,7 +433,8 @@ rallyflare/
 │   ├── 0003_add_message_direction.sql     # Inbound/outbound message tracking
 │   ├── 0004_update_model_to_gpt4o.sql     # GPT-5 upgrade
 │   ├── 0005_add_performance_metrics.sql   # Processing time & token tracking
-│   └── 0006_add_email_specific_prompts.sql # Email-specific AI prompts
+│   ├── 0006_add_email_specific_prompts.sql # Email-specific AI prompts
+│   └── 0007_add_user_tracking_and_compliance.sql # User tracking & GDPR compliance
 ├── wrangler.json          # Worker configuration (DB binding, vars)
 ├── package.json           # Dependencies and scripts
 ├── tsconfig.json          # TypeScript configuration
@@ -434,6 +490,9 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - Email-specific AI prompts
 - Settings management UI
 - HTML email handling and forwarding support
+- User tracking with GDPR compliance features
+- Interaction audit trail
+- Consent management (email, data processing)
 
 ### 🚧 In Progress
 - Cloudflare Access authentication for admin dashboard
@@ -484,6 +543,12 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - Verify the email address is being captured correctly in the `messages.email_address` field
 - Check Worker logs to see which prompt is being used: `npx wrangler tail`
 - Ensure the migration was applied: `npx wrangler d1 migrations apply rally-database --remote`
+
+**User tracking not capturing data?**
+- Check Worker logs for user capture errors: `npx wrangler tail`
+- Verify the migration was applied: `npx wrangler d1 migrations list rally-database --remote`
+- Query users table directly: `npx wrangler d1 execute rally-database --remote --command "SELECT * FROM users LIMIT 5"`
+- IP address may be null in local development (Cloudflare headers not present)
 
 **Deployment issues?**
 - **Migration failed:** Check if tables already exist, use `INSERT OR IGNORE` for sample data

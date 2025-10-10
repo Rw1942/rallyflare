@@ -352,6 +352,8 @@ export function renderDashboard(messages: Message[]) {
               <a href="/" class="nav-button">Activity</a>
               <a href="/settings" class="nav-button">Settings</a>
               <a href="/email-prompts" class="nav-button">Email Prompts</a>
+              <a href="/users" class="nav-button">Users</a>
+              <a href="/requests" class="nav-button">Requests</a>
             </nav>
         </header>
           
@@ -764,6 +766,8 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
               <a href="/" class="nav-button">Activity</a>
               <a href="/settings" class="nav-button" style="background: #667eea; color: white; border-color: #667eea;">Settings</a>
               <a href="/email-prompts" class="nav-button">Email Prompts</a>
+              <a href="/users" class="nav-button">Users</a>
+              <a href="/requests" class="nav-button">Requests</a>
             </nav>
           </header>
           
@@ -1244,6 +1248,8 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
               <a href="/" class="nav-button">Activity</a>
               <a href="/settings" class="nav-button">Settings</a>
               <a href="/email-prompts" class="nav-button active">Email Prompts</a>
+              <a href="/users" class="nav-button">Users</a>
+              <a href="/requests" class="nav-button">Requests</a>
             </nav>
           </header>
           
@@ -1441,6 +1447,633 @@ function renderPromptCard(prompt: any): string {
         <span>Created: ${createdDate}</span>
         ${updatedDate ? `<span>Updated: ${updatedDate}</span>` : ''}
       </div>
+    </div>
+  `;
+}
+
+// Requests tracking page
+export function renderRequestsPage(requests: any[]) {
+  const activeRequests = requests.filter((r: any) => r.status === 'active');
+  const closedRequests = requests.filter((r: any) => r.status !== 'active');
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Rally - Requests</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+            color: #2d3748;
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem;
+          }
+          
+          .container {
+            max-width: 1400px;
+            margin: 0 auto;
+          }
+          
+          header {
+            margin-bottom: 3rem;
+            text-align: center;
+          }
+          
+          .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+          }
+          
+          .tagline {
+            color: #718096;
+            font-size: 1rem;
+            font-weight: 400;
+          }
+          
+          .nav {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 2rem;
+          }
+          
+          .nav-button {
+            padding: 0.75rem 1.5rem;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            color: #4a5568;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+          }
+          
+          .nav-button:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+          }
+
+          .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+          }
+          
+          .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid rgba(102, 126, 234, 0.1);
+          }
+          
+          .stat-label {
+            color: #718096;
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+          }
+          
+          .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+          }
+          
+          .section {
+            margin-bottom: 3rem;
+          }
+          
+          .section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+          }
+          
+          .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2d3748;
+          }
+          
+          .requests-grid {
+            display: grid;
+            gap: 1rem;
+          }
+          
+          .request-card {
+            background: white;
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s ease;
+            cursor: pointer;
+          }
+          
+          .request-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+            border-color: #667eea;
+          }
+          
+          .request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1rem;
+          }
+          
+          .request-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 0.5rem;
+          }
+          
+          .request-meta {
+            color: #718096;
+            font-size: 0.875rem;
+          }
+          
+          .request-footer {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+          }
+          
+          .progress-bar {
+            flex: 1;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            min-width: 150px;
+          }
+          
+          .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+          }
+          
+          .progress-text {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #4a5568;
+          }
+          
+          .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.375rem 0.75rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 500;
+          }
+          
+          .status-badge.active {
+            background: #dcfce7;
+            color: #15803d;
+          }
+          
+          .status-badge.closed {
+            background: #e2e8f0;
+            color: #4a5568;
+          }
+          
+          .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: white;
+            border-radius: 16px;
+            border: 2px dashed #e2e8f0;
+          }
+          
+          .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+          }
+          
+          .empty-text {
+            color: #718096;
+            font-size: 1rem;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <header>
+            <h1 class="logo">Rally</h1>
+            <p class="tagline">Track data collection requests and responses</p>
+            <nav class="nav">
+              <a href="/" class="nav-button">Activity</a>
+              <a href="/settings" class="nav-button">Settings</a>
+              <a href="/email-prompts" class="nav-button">Email Prompts</a>
+              <a href="/users" class="nav-button">Users</a>
+              <a href="/requests" class="nav-button" style="background: #667eea; color: white; border-color: #667eea;">Requests</a>
+            </nav>
+          </header>
+          
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Total Requests</div>
+              <div class="stat-value">${requests.length}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Active Requests</div>
+              <div class="stat-value">${activeRequests.length}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Closed Requests</div>
+              <div class="stat-value">${closedRequests.length}</div>
+            </div>
+          </div>
+          
+          ${activeRequests.length > 0 ? `
+            <div class="section">
+              <div class="section-header">
+                <h2 class="section-title">🔄 Active Requests</h2>
+              </div>
+              <div class="requests-grid">
+                ${activeRequests.map((req: any) => renderRequestCard(req)).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          ${closedRequests.length > 0 ? `
+            <div class="section">
+              <div class="section-header">
+                <h2 class="section-title">✅ Closed Requests</h2>
+              </div>
+              <div class="requests-grid">
+                ${closedRequests.map((req: any) => renderRequestCard(req)).join('')}
+              </div>
+            </div>
+          ` : ''}
+          
+          ${requests.length === 0 ? `
+            <div class="empty-state">
+              <div class="empty-icon">📋</div>
+              <div class="empty-text">No requests yet. Send an email to Rally with "please respond by..." to start tracking</div>
+            </div>
+          ` : ''}
+        </div>
+        
+        <script>
+          document.querySelectorAll('.request-card').forEach(card => {
+            card.addEventListener('click', function() {
+              const requestId = this.dataset.requestId;
+              window.location.href = '/requests/' + requestId;
+            });
+          });
+        </script>
+      </body>
+    </html>
+  `;
+}
+
+function renderRequestCard(req: any): string {
+  const responseCount = req.response_count || 0;
+  const expectedCount = req.expected_count || 0;
+  const progress = expectedCount > 0 ? (responseCount / expectedCount) * 100 : 0;
+  const createdDate = formatTime(req.created_at);
+  
+  return `
+    <div class="request-card" data-request-id="${req.id}">
+      <div class="request-header">
+        <div>
+          <div class="request-title">${escapeHtml(req.title || 'Untitled Request')}</div>
+          <div class="request-meta">Created ${createdDate} by ${escapeHtml(req.created_by_email || 'Unknown')}</div>
+        </div>
+        <span class="status-badge ${req.status}">${req.status?.toUpperCase() || 'ACTIVE'}</span>
+      </div>
+      ${req.description ? `<div class="request-meta">${escapeHtml(req.description)}</div>` : ''}
+      <div class="request-footer">
+        <div class="progress-bar">
+          <div class="progress-fill" style="width: ${progress}%"></div>
+        </div>
+        <span class="progress-text">${responseCount}/${expectedCount} responses</span>
+      </div>
+    </div>
+  `;
+}
+
+// Request detail page
+export function renderRequestDetail(request: any, responses: any[]) {
+  const expectedParticipants = JSON.parse(request.expected_participants || '[]');
+  const respondedEmails = responses.map((r: any) => r.responder_email);
+  const missingParticipants = expectedParticipants.filter((email: string) => 
+    !respondedEmails.includes(email)
+  );
+  
+  const progress = expectedParticipants.length > 0 
+    ? (responses.length / expectedParticipants.length) * 100 
+    : 0;
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Rally - ${escapeHtml(request.title)}</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+            color: #2d3748;
+            line-height: 1.6;
+            min-height: 100vh;
+            padding: 2rem;
+          }
+          
+          .container {
+            max-width: 1200px;
+            margin: 0 auto;
+          }
+          
+          .back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            color: #4a5568;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            margin-bottom: 2rem;
+          }
+          
+          .back-button:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+          }
+          
+          .header-card {
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 2rem;
+          }
+          
+          .request-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 1rem;
+          }
+          
+          .request-meta {
+            color: #718096;
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+          }
+          
+          .progress-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e2e8f0;
+          }
+          
+          .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+          }
+          
+          .progress-label {
+            font-weight: 600;
+            color: #2d3748;
+          }
+          
+          .progress-count {
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+          }
+          
+          .progress-bar {
+            height: 12px;
+            background: #e2e8f0;
+            border-radius: 6px;
+            overflow: hidden;
+          }
+          
+          .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+          }
+          
+          .section {
+            margin-bottom: 2rem;
+          }
+          
+          .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 1rem;
+          }
+          
+          .response-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 1rem;
+          }
+          
+          .response-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1rem;
+          }
+          
+          .responder-name {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 1rem;
+          }
+          
+          .responder-email {
+            color: #718096;
+            font-size: 0.875rem;
+          }
+          
+          .response-time {
+            color: #a0aec0;
+            font-size: 0.875rem;
+          }
+          
+          .response-data {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.875rem;
+            color: #2d3748;
+          }
+          
+          .missing-list {
+            background: #fef5e7;
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid #f9e79f;
+          }
+          
+          .missing-list ul {
+            list-style: none;
+            padding: 0;
+          }
+          
+          .missing-list li {
+            padding: 0.5rem 0;
+            color: #856404;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.875rem;
+          }
+          
+          .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            background: white;
+            border-radius: 12px;
+            border: 2px dashed #e2e8f0;
+          }
+          
+          .empty-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+          }
+          
+          .empty-text {
+            color: #718096;
+            font-size: 0.95rem;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <a href="/requests" class="back-button">← Back to Requests</a>
+          
+          <div class="header-card">
+            <h1 class="request-title">${escapeHtml(request.title || 'Untitled Request')}</h1>
+            <div class="request-meta">Created ${formatTime(request.created_at)} by ${escapeHtml(request.created_by_email || 'Unknown')}</div>
+            ${request.deadline ? `<div class="request-meta">Deadline: ${new Date(request.deadline).toLocaleString()}</div>` : ''}
+            
+            <div class="progress-section">
+              <div class="progress-header">
+                <span class="progress-label">Response Progress</span>
+                <span class="progress-count">${responses.length}/${expectedParticipants.length}</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: ${progress}%"></div>
+              </div>
+            </div>
+          </div>
+          
+          ${responses.length > 0 ? `
+            <div class="section">
+              <h2 class="section-title">✅ Responses Received (${responses.length})</h2>
+              ${responses.map((resp: any) => renderResponseCard(resp)).join('')}
+            </div>
+          ` : ''}
+          
+          ${missingParticipants.length > 0 ? `
+            <div class="section">
+              <h2 class="section-title">⏳ Waiting On (${missingParticipants.length})</h2>
+              <div class="missing-list">
+                <ul>
+                  ${missingParticipants.map((email: string) => `<li>• ${escapeHtml(email)}</li>`).join('')}
+                </ul>
+              </div>
+            </div>
+          ` : ''}
+          
+          ${responses.length === 0 && expectedParticipants.length === 0 ? `
+            <div class="empty-state">
+              <div class="empty-icon">📭</div>
+              <div class="empty-text">No responses yet</div>
+            </div>
+          ` : ''}
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+function renderResponseCard(resp: any): string {
+  const extractedData = resp.extracted_data ? JSON.parse(resp.extracted_data) : null;
+  
+  return `
+    <div class="response-card">
+      <div class="response-header">
+        <div>
+          <div class="responder-name">${escapeHtml(resp.responder_name || 'Unknown')}</div>
+          <div class="responder-email">${escapeHtml(resp.responder_email || '')}</div>
+        </div>
+        <div class="response-time">${formatTime(resp.responded_at)}</div>
+      </div>
+      ${resp.raw_text ? `<div>${escapeHtml(resp.raw_text.substring(0, 200))}${resp.raw_text.length > 200 ? '...' : ''}</div>` : ''}
+      ${extractedData ? `
+        <div class="response-data">
+          <strong>Extracted Data:</strong><br>
+          ${Object.entries(extractedData).map(([key, value]) => 
+            `${key}: ${value}`
+          ).join('<br>')}
+        </div>
+      ` : ''}
     </div>
   `;
 }

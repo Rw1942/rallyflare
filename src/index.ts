@@ -1,4 +1,4 @@
-import { renderDashboard, renderSettings, renderEmailPrompts } from "./renderHtml";
+import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail } from "./renderHtml";
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -50,6 +50,30 @@ export default {
     if (path.startsWith("/email-prompts/") && request.method === "DELETE") {
       const id = path.split("/")[2];
       return deleteEmailPrompt(env, id);
+    }
+
+    // Users management routes
+    if (path === "/users" && request.method === "GET") {
+      return listUsers(env);
+    }
+
+    if (path.startsWith("/users/") && request.method === "GET") {
+      const email = decodeURIComponent(path.split("/")[2]);
+      return getUserDetail(env, email);
+    }
+
+    if (path === "/api/users" && request.method === "GET") {
+      return getUsersAPI(env);
+    }
+
+    // Requests tracking routes
+    if (path === "/requests" && request.method === "GET") {
+      return listRequests(env);
+    }
+
+    if (path.startsWith("/requests/") && request.method === "GET") {
+      const id = path.split("/")[2];
+      return getRequestDetail(env, id);
     }
 
     // Default route - show dashboard with recent messages
@@ -105,10 +129,17 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Track processing time from the moment we receive the email
     const processingStartTime = Date.now();
 
+    // Extract compliance data from request headers
+    const ipAddress = request.headers.get('cf-connecting-ip') || 
+                     request.headers.get('x-forwarded-for') || 
+                     request.headers.get('x-real-ip') || null;
+    const userAgent = request.headers.get('user-agent') || null;
+
     console.log("Received inbound email:", {
       from: postmarkData.FromFull?.Email,
       subject: postmarkData.Subject,
       messageId: postmarkData.MessageID,
+      ipAddress: ipAddress,
     });
 
     // Generate our internal ID
@@ -162,6 +193,15 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       `).bind(internalId, recipient.Name || "", recipient.Email).run();
     }
 
+    // Capture user data for compliance tracking
+    await captureUser(env, postmarkData.FromFull?.Email || postmarkData.From, {
+      name: postmarkData.FromFull?.Name || "",
+      ipAddress: ipAddress,
+      userAgent: userAgent,
+      messageId: internalId,
+      interactionType: 'inbound',
+    });
+
     // Store attachments metadata (if any)
     if (postmarkData.Attachments && postmarkData.Attachments.length > 0) {
       for (const attachment of postmarkData.Attachments) {
@@ -178,8 +218,11 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       }
     }
 
-    // Process with OpenAI
-    const llmResponse = await processWithOpenAI(env, internalId, postmarkData, rallyEmailAddress);
+    // Check if this email is part of a request/response workflow
+    const requestContext = await detectRequestContext(env, internalId, postmarkData);
+
+    // Process with OpenAI (including request context if applicable)
+    const llmResponse = await processWithOpenAI(env, internalId, postmarkData, rallyEmailAddress, requestContext);
 
     // Calculate total processing time (from receipt to reply sent)
     const processingEndTime = Date.now();
@@ -213,6 +256,15 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       internalId
     ).run();
 
+    // If we extracted structured data, save it to the response
+    if (llmResponse.extractedData && requestContext?.isResponse) {
+      await env.DB.prepare(`
+        UPDATE responses 
+        SET extracted_data = ?
+        WHERE message_id = ?
+      `).bind(JSON.stringify(llmResponse.extractedData), internalId).run();
+    }
+
     return new Response(JSON.stringify({
       success: true,
       messageId: internalId,
@@ -240,12 +292,13 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
  * Fetches thread history from D1 and builds it into the input prompt for better context.
  * Uses email-specific prompts when available, falls back to default prompt.
  */
-async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage, rallyEmailAddress: string): Promise<{ 
+async function processWithOpenAI(env: Env, messageId: string, postmarkData: PostmarkInboundMessage, rallyEmailAddress: string, requestContext?: any): Promise<{ 
   summary: string; 
   reply: string; 
   tokensInput?: number; 
   tokensOutput?: number;
   aiResponseTimeMs?: number;
+  extractedData?: any;
 }> {
   try {
     // Get email-specific prompt first
@@ -313,8 +366,24 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       emailContent = emailContent.substring(0, MAX_CONTENT_LENGTH) + "\n\n[... truncated ...]";
     }
 
-    // Build full input prompt
-    const input = `${systemPrompt}\n\nConversation History:${history}\n\nCurrent Email:\nFrom: ${postmarkData.FromFull?.Name} <${postmarkData.FromFull?.Email}>\nSubject: ${postmarkData.Subject}\n\n${emailContent}\n\nProvide a brief summary and a helpful reply.`;
+    // Build full input prompt with optional request context
+    let input = `${systemPrompt}\n\nConversation History:${history}\n\nCurrent Email:\nFrom: ${postmarkData.FromFull?.Name} <${postmarkData.FromFull?.Email}>\nSubject: ${postmarkData.Subject}\n\n${emailContent}`;
+
+    // Add request context if this is part of a request workflow
+    if (requestContext) {
+      input += `\n\n---\nREQUEST CONTEXT:\n`;
+      if (requestContext.isNewRequest) {
+        input += `This email appears to be starting a new data collection request. Extract:\n- Request title\n- Expected participants (email addresses)\n- Deadline\n- Required data fields\n\nRespond acknowledging the request has been tracked.`;
+      } else if (requestContext.isResponse) {
+        input += `This is a response to: "${requestContext.requestTitle}"\n`;
+        input += `Status: ${requestContext.totalResponses}/${requestContext.expectedCount} responses received\n`;
+        input += `Still waiting on: ${requestContext.missingParticipants?.join(', ') || 'none'}\n\n`;
+        input += `Extract any structured data from this response (e.g., budget numbers, headcount, dates) as JSON.\n`;
+        input += `Acknowledge receipt and provide status update.`;
+      }
+    } else {
+      input += `\n\nProvide a brief summary and a helpful reply.`;
+    }
 
     // API parameters
     const reasoningEffort = "low";
@@ -356,12 +425,19 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     const tokensInput = data.usage?.input_tokens || data.usage?.prompt_tokens;
     const tokensOutput = data.usage?.output_tokens || data.usage?.completion_tokens;
 
+    // Try to extract structured data if this is a response
+    let extractedData = null;
+    if (requestContext?.isResponse) {
+      extractedData = extractStructuredData(assistantMessage, emailContent);
+    }
+
     return {
       summary: assistantMessage.substring(0, 500),
       reply: assistantMessage,
       tokensInput,
       tokensOutput,
       aiResponseTimeMs,
+      extractedData,
     };
 
   } catch (error) {
@@ -495,6 +571,15 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       replyToMessageId,
       originalEmailAddress?.email_address || null
     ).run();
+    
+    // Track outbound interaction for the recipient
+    await captureUser(env, originalMessage.FromFull?.Email || originalMessage.From, {
+      name: originalMessage.FromFull?.Name || "",
+      messageId: outboundId,
+      interactionType: 'outbound',
+      ipAddress: null,
+      userAgent: null,
+    });
     
     return sentAt;
   } catch (error) {
@@ -710,6 +795,545 @@ async function deleteEmailPrompt(env: Env, id: string): Promise<Response> {
       status: 500,
       headers: { "content-type": "application/json" },
     });
+  }
+}
+
+/**
+ * List all users (HTML page)
+ */
+async function listUsers(env: Env): Promise<Response> {
+  const stmt = env.DB.prepare(`
+    SELECT * FROM users 
+    ORDER BY last_seen_at DESC 
+    LIMIT 100
+  `);
+  const { results } = await stmt.all();
+
+  const html = renderUsersPage(results as any[]);
+  return new Response(html, {
+    headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Get user detail including interaction history
+ */
+async function getUserDetail(env: Env, email: string): Promise<Response> {
+  const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email).first();
+
+  if (!user) {
+    return new Response(JSON.stringify({ error: "User not found" }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  // Get interaction history
+  const interactions = await env.DB.prepare(`
+    SELECT ui.*, m.subject 
+    FROM user_interactions ui
+    LEFT JOIN messages m ON ui.message_id = m.id
+    WHERE ui.user_email = ?
+    ORDER BY ui.timestamp DESC
+    LIMIT 50
+  `).bind(email).all();
+
+  return new Response(JSON.stringify({
+    user,
+    interactions: interactions.results,
+  }, null, 2), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * Get all users (API endpoint)
+ */
+async function getUsersAPI(env: Env): Promise<Response> {
+  const stmt = env.DB.prepare(`
+    SELECT * FROM users 
+    ORDER BY last_seen_at DESC
+  `);
+  const { results } = await stmt.all();
+
+  return new Response(JSON.stringify(results, null, 2), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * Render users management page
+ */
+function renderUsersPage(users: any[]): string {
+  const totalUsers = users.length;
+  const activeUsers = users.filter(u => !u.opt_out).length;
+  const optedOutUsers = users.filter(u => u.opt_out).length;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users - Rally</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .header {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .header h1 {
+      font-size: 32px;
+      color: #333;
+      margin-bottom: 10px;
+    }
+    .nav {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .nav a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+    .nav a:hover {
+      background: #f0f4ff;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .stat-card h3 {
+      font-size: 14px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+    .stat-card .value {
+      font-size: 32px;
+      font-weight: 700;
+      color: #667eea;
+    }
+    .users-table {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .users-table h2 {
+      font-size: 24px;
+      color: #333;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th {
+      text-align: left;
+      padding: 12px;
+      background: #f8f9fa;
+      color: #666;
+      font-weight: 600;
+      font-size: 14px;
+      border-bottom: 2px solid #e9ecef;
+    }
+    td {
+      padding: 12px;
+      border-bottom: 1px solid #e9ecef;
+      font-size: 14px;
+    }
+    tr:hover {
+      background: #f8f9fa;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-active {
+      background: #d4edda;
+      color: #155724;
+    }
+    .badge-opted-out {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .email-link {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .email-link:hover {
+      text-decoration: underline;
+    }
+    .compliance-icon {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      margin-left: 4px;
+    }
+    .compliance-yes {
+      background: #28a745;
+    }
+    .compliance-no {
+      background: #dc3545;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>👥 Users & Compliance</h1>
+      <p style="color: #666; margin-top: 10px;">Track all email contacts with GDPR-compliant data collection</p>
+      <div class="nav">
+        <a href="/">← Dashboard</a>
+        <a href="/settings">Settings</a>
+        <a href="/email-prompts">Email Prompts</a>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat-card">
+        <h3>Total Users</h3>
+        <div class="value">${totalUsers}</div>
+      </div>
+      <div class="stat-card">
+        <h3>Active Users</h3>
+        <div class="value">${activeUsers}</div>
+      </div>
+      <div class="stat-card">
+        <h3>Opted Out</h3>
+        <div class="value">${optedOutUsers}</div>
+      </div>
+    </div>
+
+    <div class="users-table">
+      <h2>All Users</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Name</th>
+            <th>First Seen</th>
+            <th>Last Seen</th>
+            <th>Messages</th>
+            <th>Consent</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${users.map(user => `
+            <tr>
+              <td>
+                <a href="/users/${encodeURIComponent(user.email)}" class="email-link">${user.email}</a>
+              </td>
+              <td>${user.name || '<em>Unknown</em>'}</td>
+              <td>${new Date(user.first_seen_at).toLocaleDateString()}</td>
+              <td>${new Date(user.last_seen_at).toLocaleDateString()}</td>
+              <td>
+                ↑ ${user.total_messages_sent} / ↓ ${user.total_messages_received}
+              </td>
+              <td>
+                ${user.consent_email ? '<span class="compliance-icon compliance-yes" title="Email consent"></span>' : '<span class="compliance-icon compliance-no" title="No email consent"></span>'}
+                ${user.consent_data_processing ? '<span class="compliance-icon compliance-yes" title="Data processing consent"></span>' : '<span class="compliance-icon compliance-no" title="No data processing consent"></span>'}
+              </td>
+              <td>
+                ${user.opt_out ? '<span class="badge badge-opted-out">Opted Out</span>' : '<span class="badge badge-active">Active</span>'}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Detect if email is part of a request/response workflow
+ * Returns context for AI to use in generating response
+ */
+async function detectRequestContext(env: Env, messageId: string, postmarkData: PostmarkInboundMessage): Promise<any> {
+  try {
+    const subject = postmarkData.Subject?.toLowerCase() || '';
+    const body = (postmarkData.TextBody || '').toLowerCase();
+    
+    // Pattern matching for new requests
+    const isNewRequest = (
+      (subject.includes('please') && (subject.includes('reply') || subject.includes('respond'))) ||
+      body.includes('please reply') ||
+      body.includes('please respond') ||
+      (body.includes('need') && body.includes('by end of day')) ||
+      (body.includes('deadline') || body.includes('due date'))
+    );
+    
+    if (isNewRequest) {
+      // Extract participants from To/Cc
+      const participants = [];
+      if (postmarkData.ToFull) {
+        participants.push(...postmarkData.ToFull.map((p: any) => p.Email));
+      }
+      if (postmarkData.CcFull) {
+        participants.push(...postmarkData.CcFull.map((p: any) => p.Email));
+      }
+      
+      // Create new request
+      const requestResult = await env.DB.prepare(`
+        INSERT INTO requests (title, initial_message_id, expected_participants, created_by_email)
+        VALUES (?, ?, ?, ?)
+      `).bind(
+        postmarkData.Subject || 'Untitled Request',
+        messageId,
+        JSON.stringify(participants),
+        postmarkData.FromFull?.Email || postmarkData.From
+      ).run();
+      
+      return {
+        isNewRequest: true,
+        requestId: requestResult.meta.last_row_id,
+        expectedParticipants: participants,
+      };
+    }
+    
+    // Check if this is a response to an existing request
+    // Look for In-Reply-To header and match to requests
+    const inReplyTo = postmarkData.Headers?.find((h: any) => h.Name === "In-Reply-To")?.Value;
+    if (inReplyTo) {
+      const request = await env.DB.prepare(`
+        SELECT r.*, m.message_id 
+        FROM requests r
+        JOIN messages m ON r.initial_message_id = m.id
+        WHERE m.message_id = ? OR r.initial_message_id IN (
+          SELECT id FROM messages WHERE in_reply_to = ?
+        )
+        LIMIT 1
+      `).bind(inReplyTo, inReplyTo).first();
+      
+      if (request) {
+        // Get current response count
+        const responseCount = await env.DB.prepare(
+          `SELECT COUNT(*) as count FROM responses WHERE request_id = ?`
+        ).bind(request.id).first();
+        
+        const expectedParticipants = JSON.parse(request.expected_participants as string || '[]');
+        
+        // Get who has already responded
+        const existingResponses = await env.DB.prepare(
+          `SELECT responder_email FROM responses WHERE request_id = ?`
+        ).bind(request.id).all();
+        
+        const respondedEmails = existingResponses.results.map((r: any) => r.responder_email);
+        const missingParticipants = expectedParticipants.filter((email: string) => 
+          !respondedEmails.includes(email)
+        );
+        
+        // Record this response
+        await env.DB.prepare(`
+          INSERT INTO responses (request_id, message_id, responder_email, responder_name)
+          VALUES (?, ?, ?, ?)
+        `).bind(
+          request.id,
+          messageId,
+          postmarkData.FromFull?.Email || postmarkData.From,
+          postmarkData.FromFull?.Name || ''
+        ).run();
+        
+        return {
+          isResponse: true,
+          requestId: request.id,
+          requestTitle: request.title,
+          totalResponses: (responseCount?.count as number || 0) + 1,
+          expectedCount: expectedParticipants.length,
+          missingParticipants,
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error detecting request context:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract structured data from AI response and email content
+ * Simple pattern matching for common data formats
+ */
+function extractStructuredData(aiResponse: string, emailContent: string): any {
+  try {
+    const data: any = {};
+    
+    // Look for common patterns in the email content
+    const patterns = [
+      { key: 'headcount', regex: /headcount[:\s]+([+-]?\d+)/i },
+      { key: 'opex', regex: /opex[:\s]+[\$~]?([\d,\.]+[KMkm]?)/i },
+      { key: 'capex', regex: /capex[:\s]+[\$~]?([\d,\.]+[KMkm]?)/i },
+      { key: 'tech_spend', regex: /tech spend[:\s]+[\$~]?([\d,\.]+[KMkm]?)/i },
+      { key: 'department', regex: /department[:\s]+([^\n]+)/i },
+      { key: 'cost_center', regex: /cost center[:\s]+([^\n]+)/i },
+    ];
+    
+    for (const pattern of patterns) {
+      const match = emailContent.match(pattern.regex);
+      if (match) {
+        data[pattern.key] = match[1].trim();
+      }
+    }
+    
+    // Return null if no data found
+    return Object.keys(data).length > 0 ? data : null;
+  } catch (error) {
+    console.error('Error extracting structured data:', error);
+    return null;
+  }
+}
+
+/**
+ * List all requests with response counts
+ */
+async function listRequests(env: Env): Promise<Response> {
+  const stmt = env.DB.prepare(`
+    SELECT 
+      r.*,
+      COUNT(resp.id) as response_count,
+      json_array_length(r.expected_participants) as expected_count
+    FROM requests r
+    LEFT JOIN responses resp ON r.id = resp.request_id
+    GROUP BY r.id
+    ORDER BY r.created_at DESC
+    LIMIT 50
+  `);
+  const { results } = await stmt.all();
+
+  const html = renderRequestsPage(results as any[]);
+  return new Response(html, {
+    headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Get detailed view of a specific request with all responses
+ */
+async function getRequestDetail(env: Env, id: string): Promise<Response> {
+  const request = await env.DB.prepare("SELECT * FROM requests WHERE id = ?").bind(id).first();
+
+  if (!request) {
+    return new Response(JSON.stringify({ error: "Request not found" }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const responses = await env.DB.prepare(`
+    SELECT r.*, m.subject, m.raw_text 
+    FROM responses r
+    LEFT JOIN messages m ON r.message_id = m.id
+    WHERE r.request_id = ?
+    ORDER BY r.responded_at ASC
+  `).bind(id).all();
+
+  const html = renderRequestDetail(request as any, responses.results as any[]);
+  return new Response(html, {
+    headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Capture or update user information for compliance and tracking
+ * Creates new user record or updates existing one with latest interaction data
+ */
+async function captureUser(env: Env, email: string, data: {
+  name?: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  messageId: string;
+  interactionType: 'inbound' | 'outbound';
+}): Promise<void> {
+  try {
+    // Check if user already exists
+    const existingUser = await env.DB.prepare(
+      "SELECT email, total_messages_sent, total_messages_received FROM users WHERE email = ?"
+    ).bind(email).first();
+
+    if (existingUser) {
+      // Update existing user
+      const totalSent = (existingUser.total_messages_sent as number || 0) + (data.interactionType === 'inbound' ? 1 : 0);
+      const totalReceived = (existingUser.total_messages_received as number || 0) + (data.interactionType === 'outbound' ? 1 : 0);
+
+      await env.DB.prepare(`
+        UPDATE users 
+        SET last_seen_at = datetime('now'),
+            total_messages_sent = ?,
+            total_messages_received = ?,
+            ip_address = COALESCE(?, ip_address),
+            user_agent = COALESCE(?, user_agent),
+            name = COALESCE(?, name),
+            updated_at = datetime('now')
+        WHERE email = ?
+      `).bind(totalSent, totalReceived, data.ipAddress, data.userAgent, data.name, email).run();
+
+      console.log(`Updated user: ${email} (sent: ${totalSent}, received: ${totalReceived})`);
+    } else {
+      // Create new user
+      await env.DB.prepare(`
+        INSERT INTO users (
+          email, name, ip_address, user_agent, 
+          total_messages_sent, total_messages_received,
+          source, consent_email, consent_data_processing
+        ) VALUES (?, ?, ?, ?, ?, ?, 'inbound_email', 1, 1)
+      `).bind(
+        email,
+        data.name || null,
+        data.ipAddress,
+        data.userAgent,
+        data.interactionType === 'inbound' ? 1 : 0,
+        data.interactionType === 'outbound' ? 1 : 0
+      ).run();
+
+      console.log(`Created new user: ${email}`);
+    }
+
+    // Log the interaction for audit trail
+    await env.DB.prepare(`
+      INSERT INTO user_interactions (
+        user_email, message_id, interaction_type, ip_address, user_agent
+      ) VALUES (?, ?, ?, ?, ?)
+    `).bind(email, data.messageId, data.interactionType, data.ipAddress, data.userAgent).run();
+
+  } catch (error) {
+    console.error("Error capturing user data:", error);
+    // Don't throw - we don't want user tracking to break the main flow
   }
 }
 
