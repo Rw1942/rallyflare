@@ -407,7 +407,7 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     });
 
     // Get current email content
-    let emailContent = postmarkData.TextBody || postmarkData.StrippedTextReply || "";
+    let emailContent = postmarkData.StrippedTextReply || postmarkData.TextBody || "";
     if (!emailContent.trim() && postmarkData.HtmlBody) {
       emailContent = stripHtmlToText(postmarkData.HtmlBody);
     }
