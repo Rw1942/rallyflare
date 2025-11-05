@@ -338,7 +338,7 @@ function renderEmptyState(text: string, icon: string): string {
 }
 
 // Settings page
-export function renderSettings(settings: { system_prompt: string; temperature?: number; max_tokens?: number } | null) {
+export function renderSettings(settings: { system_prompt: string; temperature?: number; max_tokens?: number } | null, postmarkStatus: PostmarkStatus) {
   const currentPrompt = settings?.system_prompt || 'You are Rally, an intelligent email assistant.';
   const currentMaxTokens = settings?.max_tokens || 500;
   
@@ -370,11 +370,35 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
               </div>
             </form>
           </div>
+
+          <div class="card status-card">
+            <div class="settings-header">
+              <h2 class="settings-title">Postmark Inbound Status</h2>
+              <p class="settings-subtitle">Verify that Postmark is successfully sending emails to your Rally worker.</p>
+            </div>
+            <div class="status-indicator status-${postmarkStatus.status}">
+              <span class="status-icon">${postmarkStatus.status === 'ok' ? '✅' : postmarkStatus.status === 'warning' ? '⚠️' : '❌'}</span>
+              <span class="status-text">${postmarkStatus.message}</span>
+            </div>
+            ${postmarkStatus.last_inbound_message_at ? `
+              <p class="status-detail">Last inbound message received: <strong>${formatTime(postmarkStatus.last_inbound_message_at)}</strong></p>
+            ` : ''}
+            ${postmarkStatus.status !== 'ok' ? `
+              <div class="info-box" style="margin-top: 1.5rem;">
+                <p><strong>Troubleshooting Tips:</strong></p>
+                <ul>
+                  <li>Ensure your Postmark inbound webhook URL is correctly configured and pointing to <code>/postmark/inbound</code> on your worker.</li>
+                  <li>Check your Cloudflare Worker logs (<code>npx wrangler tail</code>) for any errors.</li>
+                  <li>Send a test email to your Postmark inbound address to trigger a new webhook.</li>
+                </ul>
+              </div>
+            ` : ''}
+          </div>
   `;
   
   const styles = `
     .container { max-width: 900px; }
-    .settings-card { padding: 2rem; }
+    .settings-card, .status-card { padding: 2rem; margin-bottom: 2rem; }
     .settings-header { margin-bottom: 2rem; }
     .settings-title { font-size: 1.75rem; font-weight: 600; color: #2d3748; margin-bottom: 0.5rem; }
     .settings-subtitle { color: #718096; font-size: 0.95rem; }
@@ -385,6 +409,17 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
     .button-group { display: flex; gap: 1rem; margin-top: 2rem; }
     .success-message { background: #dcfce7; color: #15803d; padding: 1rem; border-radius: 12px; margin-bottom: 2rem; display: none; }
     .success-message.show { display: block; }
+
+    .status-indicator { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.5rem; border-radius: 12px; margin-bottom: 1.5rem; }
+    .status-indicator.status-ok { background: #dcfce7; color: #15803d; }
+    .status-indicator.status-warning { background: #fffbe6; color: #b45309; }
+    .status-indicator.status-error { background: #fee2e2; color: #dc2626; }
+    .status-icon { font-size: 1.5rem; }
+    .status-text { font-size: 1.125rem; font-weight: 600; }
+    .status-detail { color: #4a5568; font-size: 0.95rem; margin-top: 1rem; }
+    .status-detail strong { font-weight: 700; }
+    .info-box ul { list-style-type: disc; margin-left: 1.25rem; margin-top: 0.5rem; }
+    .info-box li { margin-bottom: 0.5rem; }
   `;
   
   const scripts = `<script>

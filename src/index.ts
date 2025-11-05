@@ -684,12 +684,22 @@ async function getMessageDetail(env: Env, id: string): Promise<Response> {
  * Get settings page
  * Shows current system prompt that controls Rally's AI behavior
  */
+interface PostmarkStatus {
+  status: string;
+  last_inbound_message_at: string | null;
+  message: string;
+}
+
 async function getSettings(env: Env): Promise<Response> {
   const settings = await env.DB.prepare(
     "SELECT system_prompt, max_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1"
   ).first<{ system_prompt: string; max_tokens: number }>();
 
-  return new Response(renderSettings(settings as any), {
+  // Get Postmark inbound status
+  const postmarkStatusResponse = await getPostmarkInboundStatus(env);
+  const postmarkStatus: PostmarkStatus = await postmarkStatusResponse.json();
+
+  return new Response(renderSettings(settings as any, postmarkStatus), {
     headers: { "content-type": "text/html" },
   });
 }
