@@ -143,7 +143,39 @@ This creates tables for:
 - Links to messages, includes IP and user agent
 - Timestamped for compliance reporting
 
-### 4. Configure Secrets
+### 4. Cloudflare API Token Setup
+
+To deploy your Worker and interact with Cloudflare services (D1, R2), you'll need a Cloudflare API Token. Set this as an environment variable:
+
+```bash
+# For PowerShell (Windows)
+$env:CLOUDFLARE_API_TOKEN="<YOUR_CLOUDFLARE_API_TOKEN>"
+
+# For Bash/Zsh (Linux/macOS)
+export CLOUDFLARE_API_TOKEN="<YOUR_CLOUDFLARE_API_TOKEN>"
+```
+
+**Required API Token Permissions:**
+
+When creating your API Token in the Cloudflare dashboard ([https://dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)), ensure it has **ALL** of the following permissions. It's recommended to create a **new token** to guarantee all permissions are correctly applied:
+
+-   **Account Permissions:**
+    -   **Account Settings**: `Read`
+    -   **Memberships**: `Read`
+    -   **Worker Scripts**: `Edit`
+    -   **Cloudflare D1**: `Edit`
+    -   **Cloudflare R2**: `Edit`
+    -   **Cloudflare Pages**: `Edit`
+
+-   **Zone Permissions:**
+    -   **Workers Routes**: `Edit`
+
+-   **User Permissions:**
+    -   **User Details**: `Read`
+
+Replace `<YOUR_CLOUDFLARE_API_TOKEN>` with the actual token value.
+
+### 5. Configure Secrets
 
 Set your API keys as Worker secrets:
 
@@ -155,7 +187,7 @@ npx wrangler secret put OPENAI_API_KEY
 # Paste your OpenAI API key
 ```
 
-For local development, copy `.dev.vars.example` to `.dev.vars`:
+For local development, copy `.dev.vars.example` to `.dev.vars` (this file is gitignored):
 
 ```bash
 # .dev.vars
@@ -163,7 +195,7 @@ POSTMARK_TOKEN=your-postmark-token
 OPENAI_API_KEY=your-openai-key
 ```
 
-### 5. Create R2 Bucket (Optional)
+### 6. Create R2 Bucket (Optional)
 
 For attachment storage:
 
@@ -171,7 +203,7 @@ For attachment storage:
 npx wrangler r2 bucket create rally-attachments
 ```
 
-### 6. Deploy
+### 7. Deploy
 
 Deploy the Worker to Cloudflare:
 
@@ -221,26 +253,11 @@ When making changes to Rally, follow this workflow:
    npx wrangler deploy
    ```
 
-### Database Migration Best Practices
-
-- **Always run migrations before deploying** the Worker code
-- **Test migrations locally first:** `npx wrangler d1 migrations apply rally-database --local`
-- **Use descriptive migration names:** `0006_add_email_specific_prompts.sql`
-- **Include rollback information** in migration comments if needed
-- **Check migration status:** `npx wrangler d1 migrations list rally-database --remote`
-
-### Git Best Practices
-
-- **Write clear commit messages** that explain what and why
-- **Use bullet points** for multiple changes in one commit
-- **Keep commits focused** - one feature or fix per commit
-- **Test locally** before committing
-- **Push frequently** to avoid losing work
-
-### Deployment Checklist
+## Deployment Checklist
 
 Before deploying to production:
 
+- [X] Cloudflare API Token (`CLOUDFLARE_API_TOKEN`) is set with correct permissions.
 - [ ] All changes committed and pushed to git
 - [ ] Database migrations applied to remote database
 - [ ] Secrets are set: `npx wrangler secret list`
@@ -249,7 +266,7 @@ Before deploying to production:
 - [ ] Test the deployment by sending an email to your Rally address
 - [ ] Check logs: `npx wrangler tail`
 
-### 7. Configure Postmark Webhook
+### 8. Configure Postmark Webhook
 
 See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed instructions.
 
@@ -551,6 +568,7 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - IP address may be null in local development (Cloudflare headers not present)
 
 **Deployment issues?**
+- **Cloudflare API Token missing/incorrect permissions:** Ensure `CLOUDFLARE_API_TOKEN` is set as an environment variable with all required permissions (see section 4 above).
 - **Migration failed:** Check if tables already exist, use `INSERT OR IGNORE` for sample data
 - **Worker won't deploy:** Verify all TypeScript compiles: `npx tsc --noEmit`
 - **Database connection errors:** Ensure D1 database ID is correct in `wrangler.json`

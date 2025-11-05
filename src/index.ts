@@ -1,7 +1,7 @@
 import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -25,7 +25,7 @@ export default {
     }
 
     if (path === "/settings" && request.method === "POST") {
-      return updateSettings(request, env);
+      return updateSettings(request, env, ctx);
     }
 
     // Email prompts page (HTML) - must come before API routes
@@ -652,18 +652,21 @@ async function getSettings(env: Env): Promise<Response> {
  * Admins can modify how Rally interprets and responds to emails
  * GPT-5 uses fixed reasoning/verbosity settings optimized for email
  */
-async function updateSettings(request: Request, env: Env): Promise<Response> {
+async function updateSettings(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   try {
-    const data = await request.json() as { system_prompt: string; max_tokens: number };
+    const formData = await request.formData();
+    const system_prompt = formData.get('system_prompt') as string;
+    const max_tokens_str = formData.get('max_tokens') as string;
+    const max_tokens = parseInt(max_tokens_str, 10);
 
     // Validate input
-    if (!data.system_prompt || data.system_prompt.trim().length === 0) {
+    if (!system_prompt || system_prompt.trim().length === 0) {
       return new Response(JSON.stringify({ error: "System prompt is required" }), {
         status: 400,
         headers: { "content-type": "application/json" },
       });
     }
-    if (isNaN(data.max_tokens) || data.max_tokens < 50 || data.max_tokens > 4000) {
+    if (isNaN(max_tokens) || max_tokens < 50 || max_tokens > 4000) {
       return new Response(JSON.stringify({ error: "Max tokens must be a number between 50 and 4000" }), {
         status: 400,
         headers: { "content-type": "application/json" },
@@ -677,10 +680,10 @@ async function updateSettings(request: Request, env: Env): Promise<Response> {
       ON CONFLICT(project_slug) 
       DO UPDATE SET system_prompt = ?, model = 'gpt-5', max_tokens = ?
     `).bind(
-      data.system_prompt,
-      data.max_tokens,
-      data.system_prompt,
-      data.max_tokens
+      system_prompt,
+      max_tokens,
+      system_prompt,
+      max_tokens
     ).run();
 
     return new Response(JSON.stringify({ success: true }), {
