@@ -329,6 +329,7 @@ Rally includes a beautiful, modern dashboard accessible at the root URL of your 
 | `GET /users` | GET | Users & compliance management page (HTML) |
 | `GET /users/:email` | GET | Get user detail with interaction history (JSON) |
 | `GET /api/users` | GET | List all users (JSON) |
+| `GET /status/postmark-inbound` | GET | Get the status of the Postmark inbound webhook (last received email timestamp) |
 
 ## How It Works
 
