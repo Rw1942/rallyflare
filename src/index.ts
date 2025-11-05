@@ -81,6 +81,16 @@ export default {
       return getPostmarkInboundStatus(env);
     }
 
+    // Processing logs route
+    if (path === "/logs" && request.method === "GET") {
+      return getProcessingLogs(env);
+    }
+
+    // API endpoint for logs (JSON)
+    if (path === "/api/logs" && request.method === "GET") {
+      return getProcessingLogsAPI(env, url.searchParams.get('message_id'));
+    }
+
     // Default route - show dashboard with recent messages
     const stmt = env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT 50");
     const { results } = await stmt.all();
@@ -136,6 +146,36 @@ async function getPostmarkInboundStatus(env: Env): Promise<Response> {
 }
 
 /**
+ * Log processing events to database for debugging and monitoring
+ */
+async function logProcessing(
+  env: Env, 
+  messageId: string | null,
+  level: 'info' | 'warning' | 'error' | 'debug',
+  stage: string,
+  message: string,
+  details?: any,
+  durationMs?: number
+): Promise<void> {
+  try {
+    await env.DB.prepare(`
+      INSERT INTO processing_logs (message_id, level, stage, message, details, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      messageId,
+      level,
+      stage,
+      message,
+      details ? JSON.stringify(details) : null,
+      durationMs || null
+    ).run();
+  } catch (error) {
+    // Don't let logging errors break the main flow
+    console.error('Failed to write processing log:', error);
+  }
+}
+
+/**
  * Strip HTML tags and decode entities to get plain text
  * Used as fallback when TextBody is empty (common with forwarded HTML emails)
  */
@@ -170,6 +210,7 @@ function stripHtmlToText(html: string): string {
  * Postmark sends JSON payload with email data
  */
 async function handlePostmarkInbound(request: Request, env: Env): Promise<Response> {
+  let internalId: string | null = null;
   try {
     const postmarkData = await request.json() as PostmarkInboundMessage;
     
@@ -190,8 +231,16 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     });
 
     // Generate our internal ID
-    const internalId = crypto.randomUUID();
+    internalId = crypto.randomUUID();
     const receivedAt = new Date().toISOString();
+
+    // Log email received
+    await logProcessing(env, internalId, 'info', 'email_received', 'Inbound email received from Postmark', {
+      from: postmarkData.FromFull?.Email,
+      subject: postmarkData.Subject,
+      hasAttachments: (postmarkData.Attachments?.length || 0) > 0,
+      contentLength: (postmarkData.TextBody || postmarkData.HtmlBody || '').length
+    });
 
     // Parse participants
     const toList = postmarkData.ToFull || [];
@@ -203,7 +252,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Store message in D1
     await env.DB.prepare(`
       INSERT INTO messages (
-        id, received_at, subject, message_id, in_reply_to, "references",
+        id, received_at, subject, message_id, in_reply_to, references_header,
         from_name, from_email, raw_text, raw_html,
         postmark_message_id, has_attachments, direction, email_address
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -224,6 +273,12 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       'inbound',
       rallyEmailAddress
     ).run();
+
+    // Log message stored
+    await logProcessing(env, internalId, 'info', 'message_stored', 'Message data saved to database', {
+      participantCount: toList.length + ccList.length,
+      attachmentCount: postmarkData.Attachments?.length || 0
+    });
 
     // Store participants (To)
     for (const recipient of toList) {
@@ -269,8 +324,23 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Check if this email is part of a request/response workflow
     const requestContext = await detectRequestContext(env, internalId, postmarkData);
 
+    // Log AI processing start
+    const aiStartTime = Date.now();
+    await logProcessing(env, internalId, 'info', 'ai_processing_start', 'Starting OpenAI processing', {
+      hasRequestContext: !!requestContext,
+      emailAddress: rallyEmailAddress
+    });
+
     // Process with OpenAI (including request context if applicable)
     const llmResponse = await processWithOpenAI(env, internalId, postmarkData, rallyEmailAddress, requestContext);
+
+    // Log AI processing complete
+    const aiDuration = Date.now() - aiStartTime;
+    await logProcessing(env, internalId, 'info', 'ai_processing_complete', 'OpenAI processing completed', {
+      tokensInput: llmResponse.tokensInput,
+      tokensOutput: llmResponse.tokensOutput,
+      hasReply: !!llmResponse.reply
+    }, aiDuration);
 
     // Calculate total processing time (from receipt to reply sent)
     const processingEndTime = Date.now();
@@ -279,11 +349,17 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Send reply email via Postmark
     let sentAt: string | null = null;
     if (llmResponse.reply) {
+      await logProcessing(env, internalId, 'info', 'sending_reply', 'Sending reply via Postmark');
+      
       sentAt = await sendReplyEmail(env, postmarkData, llmResponse.reply, internalId, {
         tokensInput: llmResponse.tokensInput,
         tokensOutput: llmResponse.tokensOutput,
         processingTimeMs: processingTimeMs,
         aiResponseTimeMs: llmResponse.aiResponseTimeMs,
+      });
+      
+      await logProcessing(env, internalId, 'info', 'reply_sent', 'Reply email sent successfully', {
+        recipient: postmarkData.FromFull?.Email || postmarkData.From
       });
     }
 
@@ -313,6 +389,12 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       `).bind(JSON.stringify(llmResponse.extractedData), internalId).run();
     }
 
+    // Log successful completion
+    await logProcessing(env, internalId, 'info', 'processing_complete', 'Email processing completed successfully', {
+      totalDuration: processingTimeMs,
+      replySent: !!sentAt
+    }, processingTimeMs);
+
     return new Response(JSON.stringify({
       success: true,
       messageId: internalId,
@@ -325,6 +407,13 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 
   } catch (error) {
     console.error("Error handling Postmark webhook:", error);
+    
+    // Log error
+    await logProcessing(env, internalId, 'error', 'processing_error', 'Error during email processing', {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
     return new Response(JSON.stringify({
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -1124,6 +1213,155 @@ async function getRequestDetail(env: Env, id: string): Promise<Response> {
   const html = renderRequestDetail(request as any, responses.results as any[]);
   return new Response(html, {
     headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Get processing logs page (HTML)
+ */
+async function getProcessingLogs(env: Env): Promise<Response> {
+  const stmt = env.DB.prepare(`
+    SELECT * FROM processing_logs 
+    ORDER BY timestamp DESC 
+    LIMIT 200
+  `);
+  const { results } = await stmt.all();
+
+  // Render a simple HTML page with logs
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Processing Logs - Rally</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { margin: 0 0 20px 0; color: #333; }
+        .nav { margin-bottom: 30px; }
+        .nav a { color: #0066cc; text-decoration: none; margin-right: 20px; }
+        .nav a:hover { text-decoration: underline; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { background: #f8f9fa; padding: 12px; text-align: left; font-weight: 600; border-bottom: 2px solid #dee2e6; position: sticky; top: 0; }
+        td { padding: 10px 12px; border-bottom: 1px solid #e9ecef; vertical-align: top; }
+        tr:hover { background: #f8f9fa; }
+        .level { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .level-info { background: #d1ecf1; color: #0c5460; }
+        .level-warning { background: #fff3cd; color: #856404; }
+        .level-error { background: #f8d7da; color: #721c24; }
+        .level-debug { background: #e2e3e5; color: #383d41; }
+        .message-id { font-family: monospace; font-size: 11px; color: #666; }
+        .timestamp { color: #666; font-size: 12px; white-space: nowrap; }
+        .details { font-size: 11px; color: #666; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
+        .duration { color: #28a745; font-weight: 600; }
+        .filters { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; }
+        .filters label { margin-right: 15px; }
+        .filters select, .filters input { padding: 6px 10px; border: 1px solid #ced4da; border-radius: 4px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="nav">
+          <a href="/">← Dashboard</a>
+          <a href="/messages">Messages</a>
+          <a href="/settings">Settings</a>
+          <a href="/users">Users</a>
+          <a href="/logs"><strong>Logs</strong></a>
+        </div>
+        
+        <h1>📋 Processing Logs</h1>
+        
+        <div class="filters">
+          <label>Filter by level:</label>
+          <select id="levelFilter" onchange="filterLogs()">
+            <option value="">All</option>
+            <option value="info">Info</option>
+            <option value="warning">Warning</option>
+            <option value="error">Error</option>
+            <option value="debug">Debug</option>
+          </select>
+          
+          <label style="margin-left: 20px;">Search message ID:</label>
+          <input type="text" id="messageIdFilter" placeholder="Enter message ID" onkeyup="filterLogs()" style="width: 300px;">
+        </div>
+        
+        <table id="logsTable">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Level</th>
+              <th>Stage</th>
+              <th>Message</th>
+              <th>Message ID</th>
+              <th>Duration</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${results.map((log: any) => `
+              <tr data-level="${log.level}" data-message-id="${log.message_id || ''}">
+                <td class="timestamp">${new Date(log.timestamp).toLocaleString()}</td>
+                <td><span class="level level-${log.level}">${log.level}</span></td>
+                <td>${log.stage}</td>
+                <td>${log.message}</td>
+                <td class="message-id">${log.message_id ? log.message_id.substring(0, 8) + '...' : '-'}</td>
+                <td>${log.duration_ms ? `<span class="duration">${log.duration_ms}ms</span>` : '-'}</td>
+                <td class="details">${log.details || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <script>
+          function filterLogs() {
+            const levelFilter = document.getElementById('levelFilter').value.toLowerCase();
+            const messageIdFilter = document.getElementById('messageIdFilter').value.toLowerCase();
+            const rows = document.querySelectorAll('#logsTable tbody tr');
+            
+            rows.forEach(row => {
+              const level = row.getAttribute('data-level');
+              const messageId = row.getAttribute('data-message-id');
+              
+              const levelMatch = !levelFilter || level === levelFilter;
+              const messageIdMatch = !messageIdFilter || messageId.includes(messageIdFilter);
+              
+              row.style.display = (levelMatch && messageIdMatch) ? '' : 'none';
+            });
+          }
+        </script>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return new Response(html, {
+    headers: { "content-type": "text/html" },
+  });
+}
+
+/**
+ * Get processing logs via API (JSON)
+ */
+async function getProcessingLogsAPI(env: Env, messageId?: string | null): Promise<Response> {
+  let stmt;
+  if (messageId) {
+    stmt = env.DB.prepare(`
+      SELECT * FROM processing_logs 
+      WHERE message_id = ?
+      ORDER BY timestamp ASC
+    `).bind(messageId);
+  } else {
+    stmt = env.DB.prepare(`
+      SELECT * FROM processing_logs 
+      ORDER BY timestamp DESC 
+      LIMIT 200
+    `);
+  }
+  
+  const { results } = await stmt.all();
+
+  return new Response(JSON.stringify(results, null, 2), {
+    headers: { "content-type": "application/json" },
   });
 }
 

@@ -1,0 +1,16 @@
+name = "rallyflare"
+main = "src/index.ts"
+compatibility_date = "2025-10-08"
+
+[vars]
+POSTMARK_URL = "https://api.postmarkapp.com/email"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rally-database"
+database_id = "d80adc3d-40bf-4371-954b-884527f2a2c9"
+
+# R2 bucket for attachments (not yet implemented - uncomment when ready)
+# [[r2_buckets]]
+# binding = "R2"
+# bucket_name = "rally-attachments"

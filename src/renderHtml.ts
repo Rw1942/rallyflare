@@ -376,6 +376,9 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
               <h2 class="settings-title">Postmark Inbound Status</h2>
               <p class="settings-subtitle">Verify that Postmark is successfully sending emails to your Rally worker.</p>
             </div>
+            <div style="margin-bottom: 1.5rem;">
+              <a href="/logs" class="btn btn-secondary">📋 View Processing Logs</a>
+            </div>
             <div class="status-indicator status-${postmarkStatus.status}">
               <span class="status-icon">${postmarkStatus.status === 'ok' ? '✅' : postmarkStatus.status === 'warning' ? '⚠️' : '❌'}</span>
               <span class="status-text">${postmarkStatus.message}</span>

@@ -576,6 +576,18 @@ The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses`
 - **Secrets missing:** Set required secrets: `npx wrangler secret put POSTMARK_TOKEN`
 - **Git conflicts:** Resolve conflicts before deploying: `git status` and `git pull origin main`
 
+### Common Wrangler & D1 Issues
+
+If you're having trouble running `wrangler d1` commands, check these common issues:
+
+-   **`wrangler.toml` vs `wrangler.json`:** This project uses the modern `wrangler.toml` configuration format. If you have an old `wrangler.json` file in your project, delete it to avoid conflicts.
+-   **Wrong Database Name:** The D1 database for this project is named `rally-database`. Ensure you use this name in your commands (e.g., `npx wrangler d1 execute rally-database ...`).
+-   **Local vs. Remote Database:** By default, `wrangler` commands run against a *local* development database. If you see an error like `no such table: messages`, it's because your local database is empty. To interact with your live, deployed database, you **must** add the `--remote` flag to your command.
+    ```bash
+    # This command targets your LIVE database in the cloud
+    npx wrangler d1 execute rally-database --command "SELECT * FROM messages LIMIT 5;" --remote
+    ```
+
 ## Performance & Scalability
 
 Rally is built on Cloudflare's edge platform, which means:
