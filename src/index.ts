@@ -307,16 +307,23 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     ).bind(rallyEmailAddress).first();
 
     let systemPrompt: string;
+    let maxTokens: number;
     if (emailPromptResult?.system_prompt) {
       systemPrompt = emailPromptResult.system_prompt as string;
-      console.log(`Using email-specific prompt for ${rallyEmailAddress}`);
+      // Email-specific prompts don't currently support max_tokens, use default
+      const settingsResult = await env.DB.prepare(
+        "SELECT max_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+      ).first<{ max_tokens: number }>();
+      maxTokens = settingsResult?.max_tokens || 500;
+      console.log(`Using email-specific prompt for ${rallyEmailAddress}, default max_tokens: ${maxTokens}`);
     } else {
       // Fall back to default project settings
       const settingsResult = await env.DB.prepare(
         "SELECT * FROM project_settings WHERE project_slug = 'default' LIMIT 1"
-      ).first();
+      ).first<{ system_prompt: string; max_tokens: number }>();
       systemPrompt = settingsResult?.system_prompt as string || "You are Rally, an intelligent email assistant.";
-      console.log(`Using default prompt for ${rallyEmailAddress}`);
+      maxTokens = settingsResult?.max_tokens || 500;
+      console.log(`Using default prompt for ${rallyEmailAddress}, max_tokens: ${maxTokens}`);
     }
 
     // Fetch thread history: Get up to 5 previous messages in the chain
@@ -394,6 +401,7 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       input,
       reasoning: { effort: reasoningEffort },
       text: { verbosity: verbosity },
+      max_tokens: maxTokens,
     };
 
     // Call OpenAI Responses API
@@ -631,8 +639,8 @@ async function getMessageDetail(env: Env, id: string): Promise<Response> {
  */
 async function getSettings(env: Env): Promise<Response> {
   const settings = await env.DB.prepare(
-    "SELECT system_prompt FROM project_settings WHERE project_slug = 'default' LIMIT 1"
-  ).first();
+    "SELECT system_prompt, max_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+  ).first<{ system_prompt: string; max_tokens: number }>();
 
   return new Response(renderSettings(settings as any), {
     headers: { "content-type": "text/html" },
@@ -646,7 +654,7 @@ async function getSettings(env: Env): Promise<Response> {
  */
 async function updateSettings(request: Request, env: Env): Promise<Response> {
   try {
-    const data = await request.json() as { system_prompt: string };
+    const data = await request.json() as { system_prompt: string; max_tokens: number };
 
     // Validate input
     if (!data.system_prompt || data.system_prompt.trim().length === 0) {
@@ -655,17 +663,24 @@ async function updateSettings(request: Request, env: Env): Promise<Response> {
         headers: { "content-type": "application/json" },
       });
     }
+    if (isNaN(data.max_tokens) || data.max_tokens < 50 || data.max_tokens > 4000) {
+      return new Response(JSON.stringify({ error: "Max tokens must be a number between 50 and 4000" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     // Update settings in D1
-    // GPT-5 doesn't use temperature - reasoning effort and verbosity are set in the code
     await env.DB.prepare(`
-      INSERT INTO project_settings (project_slug, model, system_prompt)
-      VALUES ('default', 'gpt-5', ?)
+      INSERT INTO project_settings (project_slug, model, system_prompt, max_tokens)
+      VALUES ('default', 'gpt-5', ?, ?)
       ON CONFLICT(project_slug) 
-      DO UPDATE SET system_prompt = ?, model = 'gpt-5'
+      DO UPDATE SET system_prompt = ?, model = 'gpt-5', max_tokens = ?
     `).bind(
       data.system_prompt,
-      data.system_prompt
+      data.max_tokens,
+      data.system_prompt,
+      data.max_tokens
     ).run();
 
     return new Response(JSON.stringify({ success: true }), {

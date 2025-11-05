@@ -338,8 +338,9 @@ function renderEmptyState(text: string, icon: string): string {
 }
 
 // Settings page
-export function renderSettings(settings: { system_prompt: string; temperature?: number } | null) {
+export function renderSettings(settings: { system_prompt: string; temperature?: number; max_tokens?: number } | null) {
   const currentPrompt = settings?.system_prompt || 'You are Rally, an intelligent email assistant.';
+  const currentMaxTokens = settings?.max_tokens || 500;
   
   const content = `
     <div class="card settings-card">
@@ -357,6 +358,11 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
                 <label class="form-label" for="system_prompt">System Prompt</label>
           <span class="form-help">This tells Rally how to behave when processing emails. Be specific about tone, format, and what actions Rally should take.</span>
           <textarea class="form-textarea" id="system_prompt" name="system_prompt" required placeholder="e.g., You are Rally, a professional email assistant...">${escapeHtml(currentPrompt)}</textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="max_tokens">Max Response Tokens</label>
+                <span class="form-help">Limits the length of the AI's reply. Lower values produce shorter responses. (Default: 500)</span>
+                <input type="number" class="form-input" id="max_tokens" name="max_tokens" value="${currentMaxTokens}" min="50" max="4000" required>
               </div>
               <div class="button-group">
                 <button type="submit" class="btn btn-primary">Save Settings</button>
@@ -384,7 +390,10 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
   const scripts = `<script>
           document.getElementById('settingsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-      const data = { system_prompt: new FormData(e.target).get('system_prompt') };
+      const data = {
+        system_prompt: new FormData(e.target).get('system_prompt'),
+        max_tokens: parseInt(new FormData(e.target).get('max_tokens') as string),
+      };
             try {
               const response = await fetch('/settings', {
                 method: 'POST',
