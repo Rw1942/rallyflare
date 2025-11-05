@@ -185,7 +185,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     console.log("Received inbound email:", {
       from: postmarkData.FromFull?.Email,
       subject: postmarkData.Subject,
-      messageId: postmarkData.MessageID,
+      messageId: postmarkData.MessageID, // Log the raw MessageID from Postmark
       ipAddress: ipAddress,
     });
 
@@ -203,7 +203,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // Store message in D1
     await env.DB.prepare(`
       INSERT INTO messages (
-        id, received_at, subject, message_id, in_reply_to, references_header,
+        id, received_at, subject, message_id, in_reply_to, "references",
         from_name, from_email, raw_text, raw_html,
         postmark_message_id, has_attachments, direction, email_address
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -211,14 +211,15 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       internalId,
       receivedAt,
       postmarkData.Subject || "(no subject)",
-      postmarkData.MessageID,
+      // Use Postmark's MessageID for threading if it's not the zero UUID, otherwise generate a new one
+      postmarkData.MessageID === "00000000-0000-0000-0000-000000000000" ? crypto.randomUUID() : postmarkData.MessageID,
       postmarkData.Headers?.find((h: any) => h.Name === "In-Reply-To")?.Value || null,
       postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || null,
       postmarkData.FromFull?.Name || "",
       postmarkData.FromFull?.Email || postmarkData.From,
       postmarkData.TextBody || "",
       postmarkData.HtmlBody || "",
-      postmarkData.MessageID,
+      postmarkData.MessageID, // Store Postmark's original MessageID for auditing
       (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0,
       'inbound',
       rallyEmailAddress
