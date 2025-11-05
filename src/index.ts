@@ -76,6 +76,11 @@ export default {
       return getRequestDetail(env, id);
     }
 
+    // New route for Postmark inbound status
+    if (path === "/status/postmark-inbound" && request.method === "GET") {
+      return getPostmarkInboundStatus(env);
+    }
+
     // Default route - show dashboard with recent messages
     const stmt = env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT 50");
     const { results } = await stmt.all();
@@ -87,6 +92,48 @@ export default {
     });
   },
 } satisfies ExportedHandler<Env>;
+
+/**
+ * Get Postmark inbound webhook status
+ * Returns the received_at timestamp of the latest inbound message
+ */
+async function getPostmarkInboundStatus(env: Env): Promise<Response> {
+  try {
+    const latestMessage = await env.DB.prepare(
+      "SELECT received_at FROM messages WHERE direction = 'inbound' ORDER BY received_at DESC LIMIT 1"
+    ).first<{ received_at: string }>();
+
+    if (latestMessage) {
+      return new Response(JSON.stringify({
+        status: "ok",
+        last_inbound_message_at: latestMessage.received_at,
+        message: "Successfully received and processed inbound messages."
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    } else {
+      return new Response(JSON.stringify({
+        status: "warning",
+        last_inbound_message_at: null,
+        message: "No inbound messages found yet. Webhook might not be configured or no emails received."
+      }), {
+        status: 200, // Still 200, as the status check itself is working
+        headers: { "content-type": "application/json" },
+      });
+    }
+  } catch (error) {
+    console.error("Error fetching Postmark inbound status:", error);
+    return new Response(JSON.stringify({
+      status: "error",
+      error: error instanceof Error ? error.message : "Unknown error",
+      message: "Failed to retrieve Postmark inbound status due to an internal error."
+    }), {
+      status: 500,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
 
 /**
  * Strip HTML tags and decode entities to get plain text
