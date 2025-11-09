@@ -1,0 +1,115 @@
+---
+description: best practices for Cloudflare Workers deployments and GitHub workflows
+alwaysApply: false
+---
+
+
+```bash
+# 1. Check what's changed
+git status
+
+# 2. Stage all changes
+git add .
+
+# 3. Commit with clear message
+git commit -m "Brief description
+
+- Bullet point details of what changed
+- Include any breaking changes
+- Note if database migrations needed"
+
+# 4. Push to GitHub (keeps repo in sync)
+git push origin main
+
+# 5. Apply database migrations (if any new migrations exist)
+npx wrangler d1 migrations apply rally-database --remote
+
+# 6. Deploy the Worker
+npx wrangler deploy
+```
+
+## Key Wrangler Commands
+
+**Local Development:**
+```bash
+npx wrangler dev                    # Run locally, uses .dev.vars for secrets
+npx wrangler tail                   # View live logs from deployed Worker
+```
+
+**Database Operations:**
+```bash
+# Query remote database
+npx wrangler d1 execute rally-database --remote --command "SELECT * FROM messages LIMIT 5"
+
+# List migrations
+npx wrangler d1 migrations list rally-database --remote
+
+# Apply migrations to production
+npx wrangler d1 migrations apply rally-database --remote
+```
+
+**Secrets Management:**
+```bash
+npx wrangler secret list            # View what secrets are set
+npx wrangler secret put SECRET_NAME # Add/update a secret
+npx wrangler secret delete SECRET_NAME
+```
+
+## Critical Rules
+
+1. **Git First, Deploy Second**: ALWAYS push to GitHub before deploying. This ensures the repo stays in sync with production.
+
+2. **Migrations Before Deploy**: If you created a new migration file in `/migrations`, apply it with the D1 command BEFORE deploying the Worker.
+
+3. **Never Commit Secrets**: Secrets like API keys go in `.dev.vars` (local) or via `wrangler secret put` (production). Never in git.
+
+4. **Database Name is `rally-database`**: Always use this exact name in wrangler commands (with hyphen, not underscore).
+
+5. **Remote Flag for Production**: Use `--remote` flag when working with production database. Without it, commands run against local dev database.
+
+## Common Mistakes to Avoid
+
+- ❌ Running `npx wrangler deploy` without pushing to git first
+- ❌ Forgetting to apply migrations before deploying code changes
+- ❌ Using `--local` flag when intending to modify production database
+- ❌ Deploying without testing locally first with `npx wrangler dev`
+
+## Deployment Checklist
+
+Before running `npx wrangler deploy`:
+- [ ] All code changes committed and pushed to GitHub
+- [ ] Database migrations applied (if any)
+- [ ] Tested locally with `npx wrangler dev`
+- [ ] Secrets are configured: `npx wrangler secret list`
+- [ ] Wrangler.toml has correct `database_id`
+
+After deploying:
+- [ ] Test by sending email to Rally address
+- [ ] Check logs: `npx wrangler tail`
+- [ ] Verify admin dashboard works
+
+## Configuration Files
+
+- `wrangler.toml` - Worker configuration, database bindings
+- `.dev.vars` - Local secrets (gitignored, never commit)
+- `migrations/*.sql` - Database schema changes
+
+## When Things Break
+
+```bash
+# View deployment logs
+npx wrangler tail
+
+# Check database is accessible
+npx wrangler d1 execute rally-database --remote --command "SELECT COUNT(*) FROM messages"
+
+# Verify secrets are set
+npx wrangler secret list
+
+# Test locally before deploying
+npx wrangler dev
+```
+
+---
+
+**Remember**: Git → Migrations → Deploy. Every time.

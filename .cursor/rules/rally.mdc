@@ -2,30 +2,29 @@
 alwaysApply: true
 ---
 **Rally on Cloudflare: Developer Implementation Guide (POC)**
-*(Practical. Minimal. Fast.)*
+(Practical. Minimal. Fast.)
 
 ---
 
-### 🧭 Overview
+### Overview
 
-This document outlines exactly how to build a **proof-of-concept** of Rally using **Cloudflare Workers**, **D1**, and **Postmark**. The goal is to demonstrate the core workflow:
+This document outlines how to build a proof-of-concept of Rally using Cloudflare Workers, D1, and Postmark. The goal is to demonstrate the core workflow:
 
-1. **Receive an email** (via Postmark inbound webhook).
-2. **Parse and store** message metadata and participants.
-3. **Send the content to OpenAI** for summarization or contextual processing.
-4. **Send a reply email** via Postmark.
-5. **Expose a minimal management console** for context configuration and message browsing.
+1. Receive an email (via Postmark inbound webhook).
+2. Parse and store message metadata and participants.
+3. Send the content to OpenAI for summarization or contextual processing.
+4. Send a reply email via Postmark.
+5. Expose a minimal management console for context configuration and message browsing.
 
-This is not production-grade—just a fast, working prototype that mimics how Rally should feel: **instant, invisible, and email-native.**
+This is not production-grade—just a fast, working prototype that mimics how Rally should feel: instant, invisible, and email-native.
 
 ---
 
-## 🎯 Rally UX & App Behavior
+## Rally UX & App Behavior
 
-Think of Rally as *“reply-all automation with brains.”*
-Users never log into Rally to *use* it; they interact through email. The web console exists only for admins.
+Think of Rally as “reply-all automation with brains.” Users never log into Rally to use it; they interact through email. The web console exists only for admins.
 
-* **User experience:**
+* User experience:
 
   * Someone sends or forwards an email to a Rally address (`requests@rallycollab.com`).
   * Rally parses the thread and participants instantly.
@@ -33,7 +32,7 @@ Users never log into Rally to *use* it; they interact through email. The web con
   * A structured reply or confirmation is emailed back—still inside the same thread.
   * In the background, everything is logged, searchable, and auditable in D1.
 
-* **Admin console experience (Cloudflare Pages):**
+* Admin console experience (Cloudflare Pages):
 
   * Clean single-page UI (React/Vite) showing incoming messages.
   * Settings for each “project” (like AI model, system prompt/context).
@@ -42,47 +41,41 @@ Users never log into Rally to *use* it; they interact through email. The web con
 
 ---
 
-## 🧩 Core Components
+## Core Components
 
-| Component                    | Role                                                                        | Notes                                      |
-| ---------------------------- | --------------------------------------------------------------------------- | ------------------------------------------ |
-| **Cloudflare Worker**        | Handles Postmark inbound webhooks, calls OpenAI, sends replies via Postmark | Single `index.ts` worker file              |
-| **Cloudflare D1**            | Lightweight SQL database for messages, participants, settings               | Schema below                               |
-| **Cloudflare R2 (optional)** | Storage for large attachments                                               | Store pointer in D1                        |
-| **Cloudflare Pages**         | Minimal admin console                                                       | React/Vite SPA                             |
-| **Postmark**                 | Inbound + Outbound email                                                    | Use JSON inbound, API for outbound         |
-| **OpenAI API**               | LLM processing                                                              | Model choice configurable in admin console |
+| Component            | Role                                                              | Notes                      |
+| -------------------- | ----------------------------------------------------------------- | -------------------------- |
+| Cloudflare Worker    | Handles Postmark inbound webhooks, calls OpenAI, sends replies    | Single `index.ts` worker   |
+| Cloudflare D1        | SQL DB for messages, participants, settings                       | Schema below               |
+| Cloudflare R2        | Storage for large attachments (optional)                          | Store pointer in D1        |
+| Cloudflare Pages     | Minimal admin console (React/Vite SPA)                            | React/Vite SPA             |
+| Postmark             | Inbound + Outbound email                                          | JSON inbound, API outbound |
+| OpenAI API           | LLM processing, model configurable in admin console               | Configurable model         |
 
 ---
 
-## ⚙️ Flow Summary
+## Flow Summary
 
-### 1. **Inbound Email → Rally**
+### 1. Inbound Email -> Rally
 
-* Postmark receives email → triggers webhook to Worker route `/postmark/inbound`.
-* Worker extracts:
+* Postmark receives email, triggers webhook to Worker route `/postmark/inbound`.
+* Worker extracts: From, To, Cc, MessageID, InReplyTo, References, subject, text, HTML, and attachments.
+* Worker writes normalized data to D1.
+* Large attachments stream to R2 (store reference in D1).
 
-  * `From`, `To`, `Cc`, `MessageID`, `InReplyTo`, `References`
-  * subject, text, HTML, and attachments.
-* Worker writes normalized data to **D1**.
-* Large attachments stream to **R2** (store reference in D1).
-
-### 2. **AI Processing**
+### 2. AI Processing
 
 * Worker retrieves “context” from `project_settings` table.
-* Sends the message text + context to OpenAI.
+* Sends message text + context to OpenAI.
 * Saves summary or AI output back to D1 (`llm_summary`, `llm_reply`).
 
-### 3. **Reply (optional)**
+### 3. Reply (optional)
 
-* Worker sends an outbound message through **Postmark /email**.
-* Includes:
-
-  * `In-Reply-To` and `References` headers.
-  * AI-generated or static response body.
+* Worker sends an outbound message through Postmark `/email`.
+* Includes In-Reply-To and References headers, plus AI-generated or static response body.
 * Postmark enforces 10 MB total payload limit.
 
-### 4. **Admin Console**
+### 4. Admin Console
 
 * Displays list of inbound messages.
 * Allows re-triggering an LLM run or resending via Postmark.
@@ -90,7 +83,7 @@ Users never log into Rally to *use* it; they interact through email. The web con
 
 ---
 
-## 🧱 D1 Schema (Minimal)
+## D1 Schema (Minimal)
 
 ```sql
 CREATE TABLE messages (
@@ -138,19 +131,19 @@ CREATE TABLE project_settings (
 
 ---
 
-## ⚡ Worker API Routes
+## Worker API Routes
 
-| Route               | Method | Purpose                                          |
-| ------------------- | ------ | ------------------------------------------------ |
+| Route               | Method | Purpose                                  |
+| ------------------- | ------ | ---------------------------------------- |
 | `/postmark/inbound` | `POST` | Receive inbound message JSON, store, call OpenAI |
-| `/llm/compose`      | `POST` | Re-run OpenAI with message + context             |
-| `/send`             | `POST` | Send reply via Postmark                          |
-| `/messages`         | `GET`  | List messages for console                        |
-| `/messages/:id`     | `GET`  | Retrieve message detail                          |
+| `/llm/compose`      | `POST` | Re-run OpenAI with message + context     |
+| `/send`             | `POST` | Send reply via Postmark                  |
+| `/messages`         | `GET`  | List messages for console                |
+| `/messages/:id`     | `GET`  | Retrieve message detail                  |
 
 ---
 
-## 🔐 Environment & Secrets
+## Environment & Secrets
 
 Use `wrangler secret` for keys.
 
@@ -180,41 +173,154 @@ bucket_name = "rally-attachments"
 
 ---
 
-## 💬 Notes for the Developer
+## Notes for the Developer
 
-* **Goal:** make Rally “feel invisible.” It should handle an inbound email in <2 seconds.
-* **Database**: small tables, no joins beyond basic queries.
-* **No custom auth**: gate console behind Cloudflare Access.
-* **Attachments**: skip for now unless easy; stub out R2 upload call.
-* **LLM prompt**: simple `system_prompt` + `user: raw_text`.
-* **Error handling**: log to console + insert `error_log` column in D1 later.
-* **Deployment:** `wrangler deploy` only.
-
----
-
-## 🧪 Test Plan
-
-1. **Setup Postmark inbound webhook** → Worker route URL.
-2. **Send test email** to inbound stream.
-3. **Confirm D1 row created**.
-4. **Trigger OpenAI call manually** or inline; log LLM response.
-5. **Send reply** via `/send`.
-6. **View in console** on Cloudflare Pages.
+*   Goal: make Rally “feel invisible.” It should handle an inbound email in <2 seconds.
+*   Database: small tables, no joins beyond basic queries.
+*   No custom auth: gate console behind Cloudflare Access.
+*   Attachments: skip for now unless easy; stub out R2 upload call.
+*   LLM prompt: simple `system_prompt` + `user: raw_text`.
+*   Error handling: log to console + insert `error_log` column in D1 later.
+*   Deployment: `wrangler deploy` only.
 
 ---
 
-## 🧩 Future Add-ons (Post-POC)
+## Test Plan
 
-* Replace Postmark inbound with **Cloudflare Email Workers**.
-* Add **Cloudflare Queues** for async LLM work.
-* Add **API keys per project** for SaaS-style tenants.
-* Expand **console** into full dashboard.
+1.  Setup Postmark inbound webhook -> Worker route URL.
+2.  Send test email to inbound stream.
+3.  Confirm D1 row created.
+4.  Trigger OpenAI call manually or inline; log LLM response.
+5.  Send reply via `/send`.
+6.  View in console on Cloudflare Pages.
 
 ---
-** Overall Notes
 
-Keep code simple and organized with brief comments, especially if you can relate it to the user journey. If updating the readme, just do you best to ensure it's giving an acurate overview of the project; not just the updates to it recently. 
+## Future Add-ons (Post-POC)
 
-When running deployment operations, consult the readme, and explain the git operations to me before you run them. I am trying to learn and develop an intuition for git but it's new to me. Keep the explinations very short and direct and occasionally funny. 
+*   Replace Postmark inbound with Cloudflare Email Workers.
+*   Add Cloudflare Queues for async LLM work.
+*   Add API keys per project for SaaS-style tenants.
+*   Expand console into full dashboard.
+
+---
+
+## Cloudflare Services Overview
+
+### Core Compute & Backend
+| Service         | Description                                                      | Use Case                                  |
+| --------------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| Workers         | Serverless JS/TS functions running globally at the edge.         | Backend logic, API, webhooks, auth.       |
+| Durable Objects | Stateful compute for real-time data coordination.                | Real-time features, collaborative editing. |
+| Queues          | Serverless job queue for background tasks.                       | Email sending, async processing.          |
+| Cron Triggers   | Schedule Workers.                                                | Daily reports, cleanup, syncs.            |
+
+### Data Storage
+| Service         | Description                                                      | Use Case                                  |
+| --------------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| D1              | SQL database (SQLite + global replication).                      | Small-to-medium SaaS, low ops.            |
+| R2              | S3-compatible object storage (no egress fees).                   | User uploads, logs, reports.              |
+| KV (Key-Value)  | Edge key-value store for config, sessions, cache.                | Auth tokens, feature flags, caching.      |
+| Caches          | Built-in caching layer via Workers API.                          | Rate-limiting, API caching, CDN.          |
+
+### Frontend & Hosting
+| Service    | Description                                                      | Use Case                                  |
+| ---------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| Pages      | Jamstack-style frontend hosting with CI/CD.                      | React, Next.js, SvelteKit apps.           |
+| Images     | Resizing, optimizing, and caching images at the edge.            | User avatars, thumbnails.                 |
+| Stream     | Video hosting + delivery API.                                    | Video uploads, tutorials.                 |
+
+### Networking, Security & Compliance
+| Service                               | Description                                                      | Use Case                                  |
+| ------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------- |
+| Zero Trust (Access, Tunnels, Gateway) | Identity-aware access control and SSO.                           | Secure internal dashboards, admin areas.  |
+| SSL/TLS + WAF + DDoS protection       | Automatic edge-level security.                                   | Enterprise-grade security.                |
+| Email Routing / Workers-Mail API      | Receive and process inbound emails.                              | Build Postmark-like features.             |
+
+### Developer Tools & Integrations
+*   Wrangler CLI – Deploy Workers, D1, KV, and Pages.
+*   Cloudflare Dashboard & API – Full automation via REST or Terraform.
+*   AI Gateway – Optimize and monitor calls to OpenAI/Anthropic/etc.
+*   Vectorize (Vector DB) – Embeddings store for AI apps.
+*   Cloudflare for SaaS – Custom domains + SSL for each customer.
+
+### Practical Example Stack (Fast-to-market SaaS MVP)
+*   Frontend: React on Cloudflare Pages
+*   Backend API: Workers + Durable Objects
+*   Database: D1 for structured data, KV for config
+*   File storage: R2
+*   Auth: Cloudflare Access or external (Clerk/Auth0)
+*   CI/CD: Built-in Git integration
+*   Custom domains: Cloudflare for SaaS
+*   Email/webhooks: Workers + Queues
+
+---
+# Rally on Cloudflare: Custom Cursor Rules
+
+## Project Overview
+This is Rally on Cloudflare, a proof-of-concept email-native automation tool for "reply-all automation with brains." It processes emails invisibly via AI, interacting primarily through email threads. Core flow: Inbound email webhook -> Parse & store in D1 -> AI process with OpenAI -> Optional structured reply -> Minimal admin console for config and browsing.
+
+**Key Goals:**
+- Instant, invisible automation.
+- Simple, organized code tied to user journey.
+- No user logins for core function; admin console is secondary.
+
+User Journey Focus: Comments should explain code in terms of email sender/receiver experience (e.g., "This extracts thread context to maintain conversation feel").
+
+## Tech Stack & Architecture
+- Cloudflare Worker: Handles webhooks, OpenAI API calls, email sending via Postmark.
+- Cloudflare D1: SQL DB for messages, participants, project settings. Use prepared statements; keep schemas lightweight.
+- Cloudflare R2 (Optional): Attachment storage; only if files > threshold.
+- Cloudflare Pages: React/Vite SPA for admin console (message view, re-trigger AI, resend emails, settings).
+- Integrations: Postmark for inbound/outbound email; OpenAI for summarization/processing.
+- Patterns: Modular Worker scripts (e.g., handlers/email.js, services/ai.js). Use async/await; error handling with try-catch and logging to console/D1.
+
+**File Structure Guidelines:**
+```
+├── wrangler.toml          # Worker config
+├── src/
+│   ├── index.js           # Main Worker entry
+│   ├── handlers/          # Email webhook, AI process, reply
+│   ├── services/          # D1 queries, OpenAI calls, Postmark
+│   └── utils/             # Helpers (e.g., email parsing)
+├── admin/                 # React/Vite app for Pages
+│   ├── src/
+│   │   ├── components/    # Message list, settings form
+│   │   ├── hooks/         # D1 fetches via Worker API
+│   │   └── App.tsx
+│   └── vite.config.ts
+├── sql/                   # D1 schema migrations
+└── README.md              # Full project overview
+```
+- Prefer ES modules; TypeScript optional but consistent if used.
+- No classes; use functional components/hooks in React.
+
+## Coding Standards
+- Simplicity: Keep code concise; avoid over-abstraction. Brief comments linking to user journey (e.g., "// Parse headers to preserve 'reply-all' feel").
+- Error Handling: Early returns; log to console.error. Retry OpenAI calls on transient errors.
+- Security: Sanitize email inputs; use env vars for API keys (Postmark, OpenAI). Validate webhooks with signatures.
+- Performance: Worker limits in mind—batch D1 ops, stream large responses.
+- Testing: Unit tests for services (e.g., ai.test.js with mocks); integration via Worker dev mode.
+- Naming: Descriptive, camelCase (e.g., processInboundEmail). Aux verbs for states (isProcessing, hasAttachment).
+
+**Do/Don't:**
+- Do: Export named functions; use const/let appropriately.
+- Don't: Inline large blocks; duplicate parsing logic—extract to utils.
+- Always: Format with Prettier; lint with ESLint.
+
+## Deployment & Git Guidelines
+Consult README.md before ops. Explain git steps briefly/directly (e.g., "git add . — stages changes without mercy; git commit -m 'feat: add AI reply' — logs your victory; git push — shares with the world").
+
+- Deploy Flow: `wrangler deploy` for Worker; `wrangler pages deploy admin/` for console. Use D1 migrations: `wrangler d1 execute`.
+- Git Best Practices: Conventional commits (feat:, fix:, docs:). Branch per feature (e.g., git checkout -b feat/ai-summarize). PRs for reviews.
+- README Updates: Always ensure accurate project overview post-changes—cover full flow, not just deltas. Funny note: "READMEs: Because future-you deserves a chuckle, not a cry."
+
+## AI Assistance Rules
+- Task Breakdown: Plan step-by-step: 1) Research existing code. 2) Propose minimal changes. 3) Implement + test. 4) Update README if impacted.
+- Autonomy: Fix issues proactively (e.g., add missing env check). Ask only for ambiguities (e.g., new OpenAI model choice).
+- Output: Generate code with comments; suggest tests. No apologies—fix and move on. Use TODO for incompletes.
+- Context: Reference @src/index.js for Worker entry; @admin/src/App.tsx for console.
+
+Apply to: **/*.js, **/*.ts, **/*.tsx, admin/src/**. Always enforce simplicity and journey-focus.
 
 ---
