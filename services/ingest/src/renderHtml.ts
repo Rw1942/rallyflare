@@ -10,10 +10,20 @@ interface Message {
   llm_reply?: string;
   has_attachments?: number;
   reply_to_message_id?: string;
+  // Timing metrics
   processing_time_ms?: number;
+  ingest_time_ms?: number;
+  attachment_time_ms?: number;
+  openai_upload_time_ms?: number;
   ai_response_time_ms?: number;
+  mailer_time_ms?: number;
+  // Token metrics
   tokens_input?: number;
   tokens_output?: number;
+  reasoning_tokens?: number;
+  cached_tokens?: number;
+  // Cost & metadata
+  cost_dollars?: number;
   email_address?: string;
 }
 
@@ -285,8 +295,11 @@ export function renderDashboard(messages: Message[]) {
     .badge.has-attachment { background: #fef5e7; color: #d68910; }
     .badge.ai-processed { background: #e8f4f8; color: #0e7490; }
     .badge.replied { background: #dcfce7; color: #15803d; }
-    .badge.performance { background: #f0f9ff; color: #0369a1; }
-    .badge.tokens { background: #faf5ff; color: #7c3aed; }
+    .badge.timing { background: #f0f9ff; color: #0369a1; font-weight: 600; }
+    .badge.timing-detail { background: #f0f9ff; color: #60a5fa; }
+    .badge.tokens { background: #faf5ff; color: #7c3aed; font-weight: 600; }
+    .badge.tokens-detail { background: #faf5ff; color: #a78bfa; }
+    .badge.cost { background: #f0fdf4; color: #15803d; font-weight: 600; }
     @media (max-width: 768px) {
       .stats { grid-template-columns: 1fr; }
       .message-header { flex-direction: column; }
@@ -311,9 +324,53 @@ function renderMessageCard(msg: Message, type: 'inbound' | 'outbound'): string {
   const hasAttachment = msg.has_attachments === 1;
   const aiProcessed = !!msg.llm_summary;
   const hasReply = !!msg.llm_reply;
-  const processingTimeDisplay = msg.processing_time_ms ? formatProcessingTime(msg.processing_time_ms) : null;
-  const aiResponseTimeDisplay = msg.ai_response_time_ms ? formatProcessingTime(msg.ai_response_time_ms) : null;
-  const tokenDisplay = (msg.tokens_input && msg.tokens_output) ? `${formatNumber(msg.tokens_input + msg.tokens_output)} tokens` : null;
+  
+  // Status badges
+  const statusBadges: string[] = [];
+  if (hasAttachment) statusBadges.push('<span class="badge has-attachment">Attachment</span>');
+  if (aiProcessed) statusBadges.push('<span class="badge ai-processed">AI Processed</span>');
+  if (hasReply && type === 'inbound') statusBadges.push('<span class="badge replied">Replied</span>');
+  
+  // Timing badges (only for inbound messages)
+  const timingBadges: string[] = [];
+  if (type === 'inbound') {
+    if (msg.processing_time_ms) {
+      timingBadges.push(`<span class="badge timing">Total: ${formatProcessingTime(msg.processing_time_ms)}</span>`);
+    }
+    if (msg.ingest_time_ms) {
+      timingBadges.push(`<span class="badge timing-detail">System: ${formatProcessingTime(msg.ingest_time_ms)}</span>`);
+    }
+    if (msg.attachment_time_ms) {
+      timingBadges.push(`<span class="badge timing-detail">Storage: ${formatProcessingTime(msg.attachment_time_ms)}</span>`);
+    }
+    if (msg.openai_upload_time_ms) {
+      timingBadges.push(`<span class="badge timing-detail">Upload: ${formatProcessingTime(msg.openai_upload_time_ms)}</span>`);
+    }
+    if (msg.ai_response_time_ms) {
+      timingBadges.push(`<span class="badge timing">AI: ${formatProcessingTime(msg.ai_response_time_ms)}</span>`);
+    }
+    if (msg.mailer_time_ms) {
+      timingBadges.push(`<span class="badge timing-detail">Send: ${formatProcessingTime(msg.mailer_time_ms)}</span>`);
+    }
+  }
+  
+  // Token & cost badges (only for inbound messages with AI processing)
+  const metricBadges: string[] = [];
+  if (type === 'inbound' && aiProcessed) {
+    if (msg.tokens_input && msg.tokens_output) {
+      const totalTokens = msg.tokens_input + msg.tokens_output;
+      metricBadges.push(`<span class="badge tokens">${formatNumber(totalTokens)} tokens</span>`);
+    }
+    if (msg.reasoning_tokens) {
+      metricBadges.push(`<span class="badge tokens-detail">Reasoning: ${formatNumber(msg.reasoning_tokens)}</span>`);
+    }
+    if (msg.cached_tokens) {
+      metricBadges.push(`<span class="badge tokens-detail">Cached: ${formatNumber(msg.cached_tokens)}</span>`);
+    }
+    if (msg.cost_dollars !== undefined && msg.cost_dollars !== null) {
+      metricBadges.push(`<span class="badge cost">${formatCost(msg.cost_dollars)}</span>`);
+    }
+  }
 
   return `
     <div class="message-card" data-message-id="${msg.id}">
@@ -328,12 +385,9 @@ function renderMessageCard(msg: Message, type: 'inbound' | 'outbound'): string {
       ${msg.email_address ? `<div class="message-email-address">To: ${escapeHtml(msg.email_address)}</div>` : ''}
       <div class="message-preview">${escapeHtml(msg.llm_summary || msg.llm_reply || 'No preview available')}</div>
       <div class="message-footer">
-        ${hasAttachment ? '<span class="badge has-attachment">📎 Attachment</span>' : ''}
-        ${aiProcessed ? '<span class="badge ai-processed">✨ AI Processed</span>' : ''}
-        ${hasReply && type === 'inbound' ? '<span class="badge replied">✓ Replied</span>' : ''}
-        ${processingTimeDisplay && type === 'inbound' ? `<span class="badge performance">⚡ Total: ${processingTimeDisplay}</span>` : ''}
-        ${aiResponseTimeDisplay && type === 'inbound' ? `<span class="badge performance">🤖 AI: ${aiResponseTimeDisplay}</span>` : ''}
-        ${tokenDisplay && type === 'inbound' ? `<span class="badge tokens">🔢 ${tokenDisplay}</span>` : ''}
+        ${statusBadges.join('')}
+        ${timingBadges.join('')}
+        ${metricBadges.join('')}
       </div>
     </div>
   `;
@@ -361,6 +415,16 @@ export function renderSettings(settings: {
   const currentCostInput = settings?.cost_input_per_1m ?? 2.50;
   const currentCostOutput = settings?.cost_output_per_1m ?? 10.00;
 
+  // Format model display name
+  const modelDisplayName = currentModel === 'gpt-5.1' 
+    ? 'GPT-5.1 (OpenAI\'s latest model with adaptive reasoning)' 
+    : 'GPT-5.1 Mini (Faster, cost-effective model)';
+  
+  // Capitalize first letter for display
+  const capitalizeFirst = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
+  const reasoningDisplay = capitalizeFirst(currentReasoningEffort);
+  const verbosityDisplay = capitalizeFirst(currentTextVerbosity);
+
   const content = `
     <div class="card settings-card">
             <div class="settings-header">
@@ -370,8 +434,8 @@ export function renderSettings(settings: {
       <div id="successMessage" class="success-message">Settings saved successfully! Changes will apply to all new incoming emails.</div>
       <div id="errorMessage" class="error-message"></div>
             <div class="info-box">
-              <p><strong>Model:</strong> Using GPT-5.1 (OpenAI's latest model with adaptive reasoning)</p>
-              <p style="margin-top: 0.5rem;"><strong>Configuration:</strong> Low reasoning effort + Low verbosity for fast, concise email responses</p>
+              <p><strong>Model:</strong> Using ${modelDisplayName}</p>
+              <p style="margin-top: 0.5rem;"><strong>Configuration:</strong> ${reasoningDisplay} reasoning effort + ${verbosityDisplay} verbosity</p>
             </div>
             <form id="settingsForm" method="POST" action="/settings">
               <div class="form-group">
@@ -418,6 +482,7 @@ export function renderSettings(settings: {
 
               <div class="form-group">
                 <label class="form-label">Cost Settings (per 1M tokens)</label>
+                <span class="form-help">Used for cost tracking in email footers. Verify current rates at <a href="https://openai.com/api/pricing" target="_blank" style="color: #667eea;">openai.com/api/pricing</a></span>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                   <div>
                     <label class="form-label" for="cost_input_per_1m" style="font-size: 0.85rem;">Input Cost ($)</label>
@@ -507,12 +572,13 @@ export function renderSettings(settings: {
             const inputEl = document.getElementById('cost_input_per_1m');
             const outputEl = document.getElementById('cost_output_per_1m');
             
+            // Estimated pricing - verify with OpenAI's current rates
             if (model === 'gpt-5.1') {
-              inputEl.value = 1.25;
+              inputEl.value = 2.50;
               outputEl.value = 10.00;
             } else if (model === 'gpt-5.1-mini') {
-              inputEl.value = 0.25;
-              outputEl.value = 2.00;
+              inputEl.value = 0.40;
+              outputEl.value = 1.60;
             }
           }
 
@@ -1075,8 +1141,14 @@ function formatProcessingTime(ms: number): string {
 }
 
 function formatNumber(num: number): string {
-  if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
-  return num.toString();
+  return num.toLocaleString('en-US');
+}
+
+function formatCost(dollars: number): string {
+  if (dollars < 0.01) {
+    return `$${dollars.toFixed(4)}`;
+  }
+  return `$${dollars.toFixed(2)}`;
 }
 
 // Legacy function for backwards compatibility

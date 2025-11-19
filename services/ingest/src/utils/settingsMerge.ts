@@ -45,12 +45,13 @@ export function mergeSettings(
 ): MergedSettings {
   
   // Hardcoded fallbacks (used if project_settings doesn't exist)
+  // These match the database migration defaults
   const defaults: ProjectSettings = {
     system_prompt: 'You are Rally, an intelligent email assistant.',
     model: 'gpt-5.1',
-    reasoning_effort: 'medium',
+    reasoning_effort: 'low',
     text_verbosity: 'low',
-    max_output_tokens: 1000,
+    max_output_tokens: 500,
     cost_input_per_1m: 2.50,
     cost_output_per_1m: 10.00
   };
