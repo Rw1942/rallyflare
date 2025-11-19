@@ -234,16 +234,26 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
         defaultSettings?.cost_output_per_1m ?? 10.00
       );
       
+      // Convert total time to seconds if over 1000ms
+      const totalTimeDisplay = totalTimeSoFar >= 1000 
+        ? `${(totalTimeSoFar / 1000).toFixed(2)} seconds`
+        : `${totalTimeSoFar}ms`;
+      
       const footer = `
 <br><br>
 <hr>
-<p style="font-size: 12px; color: #888;">
-  <strong>⚡ Processing Time:</strong> ${totalTimeSoFar}ms total (Received → Processing: ${ingestTime}ms | File Storage: ${attachmentTimeMs}ms | AI Upload: ${openaiUploadTime}ms | AI Thinking: ${aiTime}ms)<br>
-  <strong>💰 AI Cost:</strong> $${cost.toFixed(4)} (${inputTokens.toLocaleString()} tokens in, ${outputTokens.toLocaleString()} tokens out)
+<p style="font-size: 12px; color: #666; line-height: 1.6;">
+  <strong>Rally processed this email in ${totalTimeDisplay}:</strong><br>
+  • Received and parsed your email: ${ingestTime}ms<br>
+  ${attachmentTimeMs > 0 ? `• Saved attachments to storage: ${attachmentTimeMs}ms<br>` : ''}
+  ${openaiUploadTime > 0 ? `• Uploaded files for AI analysis: ${openaiUploadTime}ms<br>` : ''}
+  • AI generated response: ${aiTime}ms<br>
+  <br>
+  <strong>AI Usage:</strong> $${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)
 </p>
 `;
       
-      const textFooter = `\n\n---\n⚡ Processing Time: ${totalTimeSoFar}ms total (Received → Processing: ${ingestTime}ms | File Storage: ${attachmentTimeMs}ms | AI Upload: ${openaiUploadTime}ms | AI Thinking: ${aiTime}ms)\n💰 AI Cost: $${cost.toFixed(4)} (${inputTokens.toLocaleString()} tokens in, ${outputTokens.toLocaleString()} tokens out)`;
+      const textFooter = `\n\n---\nRally processed this email in ${totalTimeDisplay}:\n• Received and parsed your email: ${ingestTime}ms\n${attachmentTimeMs > 0 ? `• Saved attachments to storage: ${attachmentTimeMs}ms\n` : ''}${openaiUploadTime > 0 ? `• Uploaded files for AI analysis: ${openaiUploadTime}ms\n` : ''}• AI generated response: ${aiTime}ms\n\nAI Usage: $${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)`;
 
 
       const emailReply: EmailReply = {
