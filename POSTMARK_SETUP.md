@@ -134,7 +134,7 @@ This means Cloudflare Access is blocking the webhook. You need to:
 
 - Verify `OPENAI_API_KEY` is set in AI service: `cd services/ai && npx wrangler secret list`
 - Check OpenAI API usage/billing
-- Ensure you have access to GPT-5.1 and the Responses API
+- Ensure you have access to GPT-5.1 via OpenAI Responses API (`/v1/responses` endpoint)
 
 ### Can't send replies?
 

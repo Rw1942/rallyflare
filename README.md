@@ -33,15 +33,15 @@ It’s built for people and companies stuck behind firewalls, legacy environment
 - **Stateless conversations:** Each email thread becomes its own chat.
 - **Secure by default:** Each email thread is siloed by Message-ID.
 - **Attachment-friendly:** PDFs, images, docs processed automatically.
-- **Predictable:** Replies look and feel just like ChatGPT’s web app.
+- **Predictable:** Replies powered by GPT-5.1, same intelligence as ChatGPT.
 - **Rich Formatting:** Replies include bold, italics, lists, and code blocks rendered as clean HTML.
 
 ## 4. User Journey (End-to-End)
 
 ### Stage 1 — Awareness
 User hears about Email2ChatGPT through:
-- A coworker saying “Just email this address and it replies like ChatGPT.”
-- A simple landing page describing: Email → ChatGPT → Reply.
+- A coworker saying "Just email this address and it replies using GPT-5.1."
+- A simple landing page describing: Email → GPT-5.1 → Reply.
 - A social post showcasing the flow.
 
 **Pain point at this stage:** “I’m on a locked-down system. I can’t use normal AI tools.”
@@ -69,12 +69,13 @@ Examples:
    - Conversation thread history keyed off In-Reply-To
 
 **System Response:**
-- Reply email is generated within seconds.
-- Subject is preserved.
-- Tone matches ChatGPT defaults unless user instructs otherwise.
-- **Markdown to HTML:** The AI's markdown response is converted to styled HTML (bold, lists, code blocks) for a rich email experience.
+- Reply email is generated within seconds
+- Subject is preserved with "Re:" prefix
+- Both plain text and HTML versions sent
+- **Footer transparency**: Shows processing time breakdown and AI cost
+- Tone matches GPT-5.1 defaults unless configured otherwise
 
-**Result:** “This just works.”
+**Result:** "This just works."
 
 ### Stage 3 — Returning User Experience
 User realizes:
@@ -99,7 +100,7 @@ Power users naturally discover more:
 They forward a giant chain with: “Summarize this entire thread in a table.”
 
 **B. Conversational Replies**
-They reply “continue” and it behaves like ChatGPT.
+They reply "continue" and it behaves like GPT-5.1.
 
 **C. Attachment-Based Workflows**
 - PDFs → summarized
@@ -126,45 +127,64 @@ Where the product becomes strategic:
 
 ## 5. Product Architecture Overview
 
-**Inbound**
-Postmark → Cloudflare Worker → D1 + R2 → OpenAI REST → Postmark outbound
+**Microservices Architecture**
 
-**Components**
+Rally uses a microservices pattern with 4 independent Cloudflare Workers:
+
+| Service | Purpose | Size |
+|---------|---------|------|
+| **rally-ingest** | Main coordinator: webhooks, dashboard, email formatting | ~73 KB |
+| **rally-ai** | OpenAI API calls, file uploads | ~7 KB |
+| **rally-mailer** | Postmark email sending | ~2 KB |
+| **rally-attachments** | R2 file storage | ~1.5 KB |
+
+**Flow:**
+```
+Postmark → Ingest Worker → AI Worker → Ingest → Mailer Worker → Postmark
+                ↓
+            D1 Database
+                ↓
+         Attachments Worker → R2
+```
+
+**Data Storage:**
 
 | Component | Purpose |
 |-----------|---------|
-| **Postmark** | Email ingress + egress |
-| **Cloudflare Workers** | Main logic + routing |
-| **D1** | Conversation metadata + message history |
-| **R2** | Attachments storage |
-| **OpenAI GPT-5.1** | Chat + attachments (via Files API + Responses API) |
+| **Cloudflare D1** | Messages, participants, settings, metrics |
+| **Cloudflare R2** | Email attachments (backup copy) |
+| **OpenAI Files API** | Attachments for AI analysis |
 
 ## 6. Core Features (MVP)
 
 1.  **Email → AI Reply**
-    - Single turn and multi-turn.
+    - Single turn and multi-turn conversations
+    - Thread history maintained via In-Reply-To headers
+    - Up to 6 previous messages included for context
 
-2.  **Attachments**
-    - Supports: PDFs, Word files, Images, Excel, Audio (optional), HTML
-    - Each attachment is uploaded to R2 for storage.
-    - Attachments are uploaded to OpenAI Files API and referenced in the Responses API call.
-    - Inline images are preserved in text context; non-inline attachments are listed for AI visibility.
+2.  **Attachments & Images**
+    - Supports: PDFs, Word files, Images, Excel, all standard formats
+    - **Dual storage**: R2 for backup, OpenAI Files API for AI analysis
+    - **Smart filtering**: Images < 5KB ignored (tracking pixels, signatures)
+    - **Inline images**: Converted to `[Image: description]` text markers + uploaded for AI
+    - **Regular attachments**: Listed in text + uploaded to OpenAI in parallel
 
 3.  **Thread Persistence**
-    - Message-ID and In-Reply-To preserved
-    - Full conversation reconstructed for the model
-    - Users can treat the email chain as a chat window
+    - Message-ID and In-Reply-To headers preserved
+    - Recursive thread lookup (up to 6 messages)
+    - Users can reply indefinitely in the same thread
 
-4.  **Safety & Abuse Controls**
-    - Block automated scammers
-    - Basic prompt sanitation
-    - Rate limits per sender
-    - Attachment size limits
+4.  **Processing Transparency**
+    - **Email footer** shows timing breakdown and cost for every reply
+    - Tracks: Ingest time, R2 uploads, OpenAI uploads, AI processing, Mailer time
+    - Displays OpenAI token usage and calculated cost
+    - User-friendly descriptions (no technical jargon)
 
-5.  **Reply Formatting (New)**
-    - **Markdown to HTML:** AI responses are parsed using `marked` (v17+).
-    - **Inline Styles:** Custom renderer injects email-safe CSS for headings, links, lists, and code blocks.
-    - **Code Highlighting:** Code blocks are rendered in a monospaced font with a light gray background.
+5.  **Reply Formatting**
+    - **Plain text base**: AI returns plain text (no markdown parsing issues)
+    - **HTML version**: Simple `\n` → `<br>` conversion
+    - **Footer**: Table-based HTML for maximum email client compatibility
+    - Works perfectly in Gmail, Outlook, Apple Mail
 
 ---
 
@@ -189,7 +209,9 @@ npx wrangler r2 bucket create rally-attachments
 
 ### 4. Run migrations
 ```bash
-npx wrangler d1 migrations apply rally-database --remote
+# Migrations must be applied manually since we use microservices
+# Check migrations/ folder for new .sql files and apply them:
+npx wrangler d1 execute rally-database --remote --command "YOUR SQL HERE"
 ```
 
 ### 5. Set secrets
@@ -202,10 +224,11 @@ cd ../../services/ai && npx wrangler secret put OPENAI_API_KEY
 
 ### 6. Deploy Services
 ```bash
-cd services/mailer && npx wrangler deploy
-cd ../ai && npx wrangler deploy
-cd ../attachments && npx wrangler deploy
-cd ../ingest && npx wrangler deploy
+# Deploy all services (order doesn't matter but dependencies first is good practice)
+npx wrangler deploy services/mailer/src/index.ts --name rally-mailer
+npx wrangler deploy services/attachments/src/index.ts --name rally-attachments
+npx wrangler deploy services/ai/src/index.ts --name rally-ai
+npx wrangler deploy services/ingest/src/index.ts --name rally-ingest
 ```
 
 ### 7. Configure Postmark webhook
@@ -213,16 +236,50 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 
 ## Architecture Details
 
-| Component | Purpose |
-|-----------|---------|
-| **Ingest Service** | Main entry point. Handles webhooks, dashboard, D1 storage, and orchestration. Webhook: `/postmark/inbound` |
-| **AI Service** | Dedicated worker for OpenAI GPT-5.1 via native REST API. Supports file attachments via OpenAI Files API + Responses API. **Note:** Uses `v1/responses` endpoint exclusively. |
-| **Mailer Service** | Dedicated worker for sending emails via Postmark. |
-| **Attachments Service** | Handles file uploads to Cloudflare R2. |
-| **Cloudflare D1** | Stores messages, participants, and metadata. |
-| **Cloudflare R2** | Stores email attachments. |
-| **Postmark** | Inbound + outbound email handling. |
-| **Cloudflare Access** | Protects admin dashboard; bypasses webhook path. |
+### Service Responsibilities
+
+**rally-ingest** (Main Coordinator)
+- Receives Postmark webhooks at `/postmark/inbound`
+- Parses email headers, body, attachments
+- Stores messages in D1 database
+- Coordinates with other services (AI, Mailer, Attachments)
+- Generates email footer with metrics
+- Converts plain text AI responses to HTML
+- Serves admin dashboard
+
+**rally-ai** (OpenAI Integration)
+- Uploads attachments to OpenAI Files API
+- Calls OpenAI Responses API (`/v1/responses`)
+- Returns plain text responses only
+- Tracks token usage and timing
+- No HTML formatting (single responsibility)
+
+**rally-mailer** (Email Sending)
+- Sends emails via Postmark API
+- Handles In-Reply-To and References headers
+- Tracks send time
+
+**rally-attachments** (File Storage)
+- Stores attachments in R2 bucket
+- Returns storage keys and file size
+- Tracks upload time
+
+### Database Schema
+
+**Key tables:**
+- `messages` - All inbound/outbound emails with metrics
+- `attachments` - File metadata with R2 keys
+- `project_settings` - AI model config and cost settings
+- `email_prompts` - Email-specific AI prompts
+- `users` - Contact tracking and compliance
+
+**Performance columns:**
+- `processing_time_ms` - Total end-to-end time
+- `ingest_time_ms` - Parsing and coordination
+- `attachment_time_ms` - R2 upload time
+- `ai_response_time_ms` - OpenAI API response time
+- `mailer_time_ms` - Email send time
+- `tokens_input` / `tokens_output` - For cost calculation
 
 ## Admin Dashboard
 
@@ -250,24 +307,17 @@ npx wrangler tail
 
 ## Troubleshooting & Notes
 
-### CLI Deployment Issues
-If you encounter errors like `no such file or directory` when running `wrangler deploy`, ensure you are in the correct service directory.
-**Correct:**
-```bash
-cd services/ai
-npx wrangler deploy
-```
-**Incorrect:**
-```bash
-# From root
-npx wrangler deploy services/ai/src/index.ts # Will fail
-```
+### GPT-5.1 API Configuration
 
-### Markdown Rendering (`marked` Library)
-We use `marked` v17+ for converting Markdown to HTML.
-**Important:** The Renderer API in v17 passes a `token` object to renderer methods (e.g., `renderer.paragraph(token)`).
-- You **must** use `this.parser.parseInline(token.tokens)` to render inner content for block elements.
-- Do **not** use arrow functions for renderer overrides if you need `this` context (use `function(token) { ... }`).
+Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
+- **Model**: `gpt-5.1` or `gpt-5.1-mini`
+- **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`
+- **NOT using**: Chat Completions API (`/v1/chat/completions`)
+
+Configure in Settings page:
+- Reasoning effort: minimal, low, medium, high
+- Text verbosity: low, medium, high
+- Cost per 1M tokens (auto-populated based on model selection)
 
 ## License
 

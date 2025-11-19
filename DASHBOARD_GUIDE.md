@@ -2,18 +2,18 @@
 
 ## User Story
 
-**As an Email2ChatGPT admin,**  
+**As a Rally admin,**  
 I want to see a clean, peaceful dashboard of all email activity  
-So that I can quickly understand what Email2ChatGPT is handling and ensure everything is working smoothly.
+So that I can quickly understand what Rally is handling and ensure everything is working smoothly.
 
 ### Design Philosophy
 
-The Email2ChatGPT dashboard embodies these principles:
+The Rally dashboard embodies these principles:
 
 - **Calm and Uncluttered** - Like reading a well-organized inbox, not a technical admin panel
 - **Instantly Scannable** - Clear visual hierarchy with color-coded sections
 - **Soft and Inviting** - Gentle gradients, rounded corners, and soft shadows
-- **Trustworthy** - Shows Email2ChatGPT working invisibly in the background
+- **Trustworthy** - Shows Rally working invisibly in the background powered by GPT-5.1
 
 ## Features
 
