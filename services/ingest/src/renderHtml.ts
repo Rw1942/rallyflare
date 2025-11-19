@@ -416,7 +416,11 @@ export function renderSettings(settings: {
   const currentCostOutput = settings?.cost_output_per_1m ?? 10.00;
 
   // Format model display name
-  const modelDisplayName = 'GPT-5.1 (OpenAI\'s latest model with adaptive reasoning)';
+  const modelDisplayName = currentModel === 'gpt-5.1' 
+    ? 'GPT-5.1 (Advanced reasoning)' 
+    : currentModel === 'gpt-5-mini'
+    ? 'GPT-5 Mini (Faster, cost-effective)'
+    : 'GPT-5.1 (Advanced reasoning)';
   
   // Capitalize first letter for display
   const capitalizeFirst = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
@@ -444,8 +448,11 @@ export function renderSettings(settings: {
 
               <div class="form-group">
                 <label class="form-label" for="model">AI Model</label>
-                <span class="form-help">GPT-5.1 with adaptive reasoning (only available model for Responses API).</span>
-                <input type="text" class="form-input" id="model" name="model" value="gpt-5.1" readonly style="background: #f7fafc; cursor: not-allowed;" />
+                <span class="form-help">Choose between full GPT-5.1 or the faster, cheaper Mini version.</span>
+                <select class="form-input" id="model" name="model" required onchange="updateCosts(this.value)">
+                  <option value="gpt-5.1" ${currentModel === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1 (Advanced)</option>
+                  <option value="gpt-5-mini" ${currentModel === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini (Fast & Cheap)</option>
+                </select>
               </div>
 
               <div class="form-group">
@@ -563,7 +570,19 @@ export function renderSettings(settings: {
             }
           }
 
-            // Note: Cost update function removed - model is fixed to gpt-5.1
+            function updateCosts(model) {
+              const inputEl = document.getElementById('cost_input_per_1m');
+              const outputEl = document.getElementById('cost_output_per_1m');
+              
+              // Pricing from OpenAI (verify at openai.com/api/pricing)
+              if (model === 'gpt-5.1') {
+                inputEl.value = 2.50;
+                outputEl.value = 10.00;
+              } else if (model === 'gpt-5-mini') {
+                inputEl.value = 0.25;
+                outputEl.value = 2.00;
+              }
+            }
 
           document.getElementById('settingsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -643,8 +662,9 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
                 <div class="form-group">
                   <label class="form-label" for="model">Model (optional)</label>
                   <select class="form-input" id="model" name="model">
-                    <option value="">Use Default (gpt-5.1)</option>
-                    <option value="gpt-5.1">GPT-5.1</option>
+                    <option value="">Use Default</option>
+                    <option value="gpt-5.1">GPT-5.1 (Advanced)</option>
+                    <option value="gpt-5-mini">GPT-5 Mini (Fast & Cheap)</option>
                   </select>
                 </div>
                 

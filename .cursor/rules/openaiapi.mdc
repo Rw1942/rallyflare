@@ -3,8 +3,9 @@
 Cloudflare Workers • TypeScript • D1 • R2
 
 **IMPORTANT: Model Names**
-- **Only Model:** `gpt-5.1` - OpenAI's latest reasoning model
-- **No Mini Version:** As of 2025, there is no `gpt-5.1-mini` model available
+- **Available Models:**
+  - `gpt-5.1` - Advanced reasoning model ($2.50 input / $10.00 output per 1M tokens)
+  - `gpt-5-mini` - Faster, cost-effective ($0.25 input / $2.00 output per 1M tokens)
 - **Supported Parameters:** `reasoning.effort`, `text.verbosity`, `max_output_tokens`
 - **Unsupported Parameters:** `temperature`, `top_p` (will cause 400 errors)
 
@@ -29,7 +30,7 @@ const headers = (env: Env) => ({
 ```ts
 export async function chat(env: Env, prompt: string) {
   const body = {
-    model: "gpt-5.1",  // Only valid model for Responses API
+    model: "gpt-5.1",  // or "gpt-5-mini" for faster, cheaper responses
     input: [{ role: "user", content: prompt }],
     // Supported configuration parameters
     reasoning: { effort: "medium" }, // minimal, low, medium, high

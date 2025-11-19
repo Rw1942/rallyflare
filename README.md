@@ -310,7 +310,7 @@ Email-Specific Settings → Project Defaults → Hardcoded Fallbacks
 
 **Configurable Parameters:**
 - `system_prompt` - AI personality and behavior instructions
-- `model` - Currently only `gpt-5.1` (no mini version available)
+- `model` - `gpt-5.1` (advanced) or `gpt-5-mini` (fast & cheap)
 - `reasoning_effort` - Thinking depth (`minimal`, `low`, `medium`, `high`)
 - `text_verbosity` - Response length (`low`, `medium`, `high`)
 - `max_output_tokens` - Hard limit on response length
@@ -413,18 +413,18 @@ npx wrangler d1 execute rally-database --remote --command "DELETE FROM messages 
 ### GPT-5.1 API Configuration
 
 Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
-- **Model**: `gpt-5.1` (only available model)
+- **Models**: `gpt-5.1`, `gpt-5-mini`
 - **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`
 - **NOT using**: Chat Completions API (`/v1/chat/completions`)
 
 **Available in Settings:**
-- **Model** - GPT-5.1 only (no mini version available as of 2025)
+- **Model** - GPT-5.1 (advanced, $2.50/$10.00 per 1M) or GPT-5 Mini (fast, $0.25/$2.00 per 1M)
 - **Reasoning effort** - minimal, low, medium, high (controls thinking depth)
 - **Text verbosity** - low, medium, high (controls response length)
 - **Max output tokens** - Hard cap on response length (50-128000)
-- **Cost settings** - Input/output cost per 1M tokens for tracking
+- **Cost settings** - Auto-populated based on model selection
 
-**Note:** GPT-5.1 does not support `temperature` or `top_p` parameters. Use `reasoning_effort` to control response characteristics.
+**Note:** GPT-5 models do not support `temperature` or `top_p` parameters. Use `reasoning_effort` to control response characteristics.
 
 ### Email Formatting Architecture
 
