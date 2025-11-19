@@ -93,6 +93,8 @@ export async function streamChat(env: Env, prompt: string) {
 
 ## 4. Attachments: Files, PDFs, Images
 
+**Important:** For GPT-5.1 and the Responses API, you must upload files to the **Files API** first, then reference them by `file_id`.
+
 ### 4A. Multipart Helper for Workers
 
 > Workers can build multipart bodies directly—no NPM deps required.
@@ -100,97 +102,131 @@ export async function streamChat(env: Env, prompt: string) {
 ```ts
 export function buildMultipart(parts: Record<string, any>) {
   const boundary = "----cf-" + crypto.randomUUID();
-  const chunks: (string | File)[] = [];
+  const chunks: (string | Blob | Uint8Array)[] = [];
 
   for (const [name, value] of Object.entries(parts)) {
-    chunks.push(`--${boundary}`);
-    if (value instanceof File) {
-      chunks.push(
-        `Content-Disposition: form-data; name="${name}"; filename="${value.name}"`,
-        `Content-Type: ${value.type || "application/octet-stream"}`,
-        "",
-        value
-      );
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        appendPart(chunks, boundary, name, item);
+      }
     } else {
-      chunks.push(
-        `Content-Disposition: form-data; name="${name}"`,
-        "",
-        typeof value === "string" ? value : JSON.stringify(value)
-      );
+      appendPart(chunks, boundary, name, value);
     }
   }
 
   chunks.push(`--${boundary}--`, "");
+
   return {
     body: new Blob(chunks),
     boundary
   };
 }
+
+function appendPart(chunks: (string | Blob | Uint8Array)[], boundary: string, name: string, value: any) {
+  chunks.push(`--${boundary}`);
+
+  if (value instanceof File) {
+    chunks.push(
+      `Content-Disposition: form-data; name="${name}"; filename="${value.name}"`,
+      `Content-Type: ${value.type || "application/octet-stream"}`,
+      "",
+      value
+    );
+  } else {
+    chunks.push(
+      `Content-Disposition: form-data; name="${name}"`,
+      "",
+      typeof value === "string" ? value : JSON.stringify(value)
+    );
+  }
+}
 ```
 
-### 4B. R2 File to OpenAI
+### 4B. Upload File to OpenAI (Files API)
 
 ```ts
-// Step 1: Load file from R2
-const r2Obj = await env.BUCKET.get(key);
-const arrayBuffer = await r2Obj.arrayBuffer();
-const file = new File([arrayBuffer], key, {
-  type: r2Obj.httpMetadata.contentType || "application/octet-stream"
-});
+async function uploadFile(env: Env, file: File): Promise<string> {
+  const { body, boundary } = buildMultipart({
+    file,
+    purpose: "assistants"
+  });
 
-// Step 2: Build multipart payload
-const { body, boundary } = buildMultipart({
-  model: "gpt-5.1",
-  input: JSON.stringify([{ role: "user", content: "Summarize this file." }]),
-  reasoning: { effort: "medium" },
-  file
-});
+  const resp = await fetch("https://api.openai.com/v1/files", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+      "Content-Type": `multipart/form-data; boundary=${boundary}`
+    },
+    body
+  });
 
-// Step 3: Send to OpenAI
+  const json = await resp.json();
+  return json.id; // Returns file_id (e.g., "file-abc123")
+}
+```
+
+### 4C. Call Responses API with File ID
+
+```ts
+// Step 1: Upload file
+const fileId = await uploadFile(env, myFile);
+
+// Step 2: Call Responses API
 const resp = await fetch("https://api.openai.com/v1/responses", {
   method: "POST",
   headers: {
     "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
-    "Content-Type": `multipart/form-data; boundary=${boundary}`
+    "Content-Type": "application/json"
   },
-  body
+  body: JSON.stringify({
+    model: "gpt-5.1",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_file", file_id: fileId },
+          { type: "input_text", text: "Summarize this file." }
+        ]
+      }
+    ],
+    reasoning: { effort: "medium" }
+  })
 });
-
-const json = await resp.json();
-const messageItem = json.output?.find((item: any) => item.type === "message");
-const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
-const text = contentItem?.text || "";
 ```
 
 ---
 
 ## 5. Handling Direct User Uploads
 
-> Got a POST with a file? Works the same.
+> Got a POST with a file? Upload it first, then chat.
 
 ```ts
 const form = await request.formData();
 const file = form.get("file") as File;
 
-const { body, boundary } = buildMultipart({
-  model: "gpt-5.1",
-  input: JSON.stringify([{ role: "user", content: "Extract all dates from this document." }]),
-  file
-});
+// 1. Upload to OpenAI
+const fileId = await uploadFile(env, file);
 
+// 2. Chat with context
 const resp = await fetch("https://api.openai.com/v1/responses", {
   method: "POST",
   headers: {
     "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
-    "Content-Type": `multipart/form-data; boundary=${boundary}`
+    "Content-Type": "application/json"
   },
-  body
+  body: JSON.stringify({
+    model: "gpt-5.1",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_file", file_id: fileId },
+          { type: "input_text", text: "Extract all dates from this document." }
+        ]
+      }
+    ]
+  })
 });
-
-const json = await resp.json();
-const messageItem = json.output?.find((item: any) => item.type === "message");
-const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
-const text = contentItem?.text || "";
 ```
 
 ---
@@ -265,32 +301,37 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const prompt = form.get("prompt") as string;
   const file = form.get("file") as File | null;
 
-  let payload: any = {
-    model: "gpt-5.1",
-    input: JSON.stringify([{ role: "user", content: prompt }]),
-    reasoning: { effort: "medium" },
-    text: { verbosity: "low" }
-  };
-
-  let headers: Record<string, string> = {
-    "Authorization": `Bearer ${env.OPENAI_API_KEY}`
-  };
-
-  let body;
+  let userContent: any[] = [{ type: "input_text", text: prompt }];
 
   if (file) {
-    const { body: multipart, boundary } = buildMultipart({ ...payload, file });
-    body = multipart;
-    headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
-  } else {
-    headers["Content-Type"] = "application/json";
-    body = JSON.stringify(payload);
+    // Upload file first
+    const { body, boundary } = buildMultipart({ file, purpose: "assistants" });
+    const uploadResp = await fetch("https://api.openai.com/v1/files", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": `multipart/form-data; boundary=${boundary}`
+      },
+      body
+    });
+    const uploadJson = await uploadResp.json();
+    
+    // Add file reference
+    userContent.unshift({ type: "input_file", file_id: uploadJson.id });
   }
 
   const resp = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers,
-    body
+    headers: {
+      "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5.1",
+      input: [{ role: "user", content: userContent }],
+      reasoning: { effort: "medium" },
+      text: { verbosity: "low" }
+    })
   });
 
   const out = await resp.json();
