@@ -411,7 +411,7 @@ export function renderSettings(settings: {
   const currentModel = settings?.model || 'gpt-5.1';
   const currentReasoningEffort = settings?.reasoning_effort || 'low';
   const currentTextVerbosity = settings?.text_verbosity || 'low';
-  const currentMaxOutputTokens = settings?.max_output_tokens || 500;
+  const currentMaxOutputTokens = settings?.max_output_tokens || 4000;
   const currentCostInput = settings?.cost_input_per_1m ?? 2.50;
   const currentCostOutput = settings?.cost_output_per_1m ?? 10.00;
 
@@ -478,7 +478,7 @@ export function renderSettings(settings: {
 
               <div class="form-group">
                 <label class="form-label" for="max_output_tokens">Max Output Tokens</label>
-                <span class="form-help">Limits the length of the AI's reply. Lower values produce shorter responses. (Default: 500)</span>
+                <span class="form-help">Limits the length of the AI's reply. (Default: 4000)</span>
                 <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" value="${currentMaxOutputTokens}" min="50" max="128000" required>
               </div>
 
