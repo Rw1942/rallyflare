@@ -350,6 +350,8 @@ export function renderSettings(settings: {
   reasoning_effort: "minimal" | "low" | "medium" | "high";
   text_verbosity: "low" | "medium" | "high";
   max_output_tokens: number;
+  temperature?: number;
+  top_p?: number;
   cost_input_per_1m?: number;
   cost_output_per_1m?: number;
 } | null, postmarkStatus: PostmarkStatus) {
@@ -358,6 +360,8 @@ export function renderSettings(settings: {
   const currentReasoningEffort = settings?.reasoning_effort || 'low';
   const currentTextVerbosity = settings?.text_verbosity || 'low';
   const currentMaxOutputTokens = settings?.max_output_tokens || 500;
+  const currentTemperature = settings?.temperature ?? 1.0;
+  const currentTopP = settings?.top_p ?? 1.0;
   const currentCostInput = settings?.cost_input_per_1m ?? 2.50;
   const currentCostOutput = settings?.cost_output_per_1m ?? 10.00;
 
@@ -414,6 +418,18 @@ export function renderSettings(settings: {
                 <label class="form-label" for="max_output_tokens">Max Output Tokens</label>
                 <span class="form-help">Limits the length of the AI's reply. Lower values produce shorter responses. (Default: 500)</span>
                 <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" value="${currentMaxOutputTokens}" min="50" max="128000" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="temperature">Temperature</label>
+                <span class="form-help">Controls randomness (0-2). Lower = focused, higher = creative. Default: 1.0. ⚠️ Use temperature OR top_p, not both.</span>
+                <input type="number" step="0.1" class="form-input" id="temperature" name="temperature" value="${currentTemperature}" min="0" max="2" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="top_p">Top P (Nucleus Sampling)</label>
+                <span class="form-help">Alternative to temperature (0-1). Lower = more focused. Default: 1.0. ⚠️ Use temperature OR top_p, not both.</span>
+                <input type="number" step="0.01" class="form-input" id="top_p" name="top_p" value="${currentTopP}" min="0" max="1" required>
               </div>
 
               <div class="form-group">
@@ -556,11 +572,14 @@ export function renderSettings(settings: {
 export function renderEmailPrompts(emailPrompts: any[] = []) {
   const content = `
           <div class="page-header">
-            <h2 class="page-title">Email-Specific Prompts</h2>
-            <button class="btn btn-primary" onclick="openAddModal()">Add Email Prompt</button>
+            <h2 class="page-title">Email-Specific Settings</h2>
+            <button class="btn btn-primary" onclick="openAddModal()">Add Email Settings</button>
           </div>
-    <div id="successMessage" class="success-message">Email prompt saved successfully!</div>
-    <div id="errorMessage" class="error-message">Error saving email prompt. Please try again.</div>
+          <div class="info-box" style="margin-bottom: 2rem;">
+            <p><strong>How it works:</strong> Configure custom AI behavior for specific email addresses. Any setting left empty will use the global default. Perfect for giving different email addresses different personalities or configurations.</p>
+          </div>
+    <div id="successMessage" class="success-message">Email settings saved successfully!</div>
+    <div id="errorMessage" class="error-message">Error saving email settings. Please try again.</div>
           <div class="prompts-grid">
             ${emailPrompts.map(prompt => renderPromptCard(prompt)).join('')}
             <div class="add-prompt-card" onclick="openAddModal()">
@@ -569,23 +588,78 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
             </div>
           </div>
         <div id="promptModal" class="modal">
-          <div class="modal-content">
+          <div class="modal-content" style="max-width: 700px;">
             <div class="modal-header">
-              <h3 class="modal-title" id="modalTitle">Add Email Prompt</h3>
+              <h3 class="modal-title" id="modalTitle">Add Email Settings</h3>
               <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
             <form id="promptForm">
               <div class="form-group">
                 <label class="form-label" for="email_address">Email Address</label>
-            <input type="email" class="form-input" id="email_address" name="email_address" required placeholder="support@rallycollab.com" />
+                <span class="form-help">The Rally email address to apply these settings to</span>
+                <input type="email" class="form-input" id="email_address" name="email_address" required placeholder="support@rallycollab.com" />
               </div>
+              
               <div class="form-group">
-                <label class="form-label" for="system_prompt">System Prompt</label>
-            <textarea class="form-textarea" id="system_prompt" name="system_prompt" required placeholder="You are Rally, a customer support assistant..."></textarea>
+                <label class="form-label" for="system_prompt">System Prompt (optional)</label>
+                <span class="form-help">Leave empty to use global default</span>
+                <textarea class="form-textarea" id="system_prompt" name="system_prompt" placeholder="You are Rally, a customer support assistant..."></textarea>
               </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" for="model">Model (optional)</label>
+                  <select class="form-input" id="model" name="model">
+                    <option value="">Use Default</option>
+                    <option value="gpt-5.1">GPT-5.1</option>
+                    <option value="gpt-5.1-mini">GPT-5.1 Mini</option>
+                  </select>
+                </div>
+                
+                <div class="form-group">
+                  <label class="form-label" for="reasoning_effort">Reasoning Effort (optional)</label>
+                  <select class="form-input" id="reasoning_effort" name="reasoning_effort">
+                    <option value="">Use Default</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" for="text_verbosity">Verbosity (optional)</label>
+                  <select class="form-input" id="text_verbosity" name="text_verbosity">
+                    <option value="">Use Default</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="max_output_tokens">Max Tokens (optional)</label>
+                  <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" placeholder="Use default" min="50" max="128000" />
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" for="temperature">Temperature (optional)</label>
+                  <input type="number" step="0.1" class="form-input" id="temperature" name="temperature" placeholder="Use default" min="0" max="2" />
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="top_p">Top P (optional)</label>
+                  <input type="number" step="0.01" class="form-input" id="top_p" name="top_p" placeholder="Use default" min="0" max="1" />
+                </div>
+              </div>
+
               <div class="button-group">
                 <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Prompt</button>
+                <button type="submit" class="btn btn-primary">Save Settings</button>
               </div>
             </form>
           </div>
@@ -620,9 +694,15 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
           
           function openAddModal() {
             currentPromptId = null;
-            document.getElementById('modalTitle').textContent = 'Add Email Prompt';
+            document.getElementById('modalTitle').textContent = 'Add Email Settings';
             document.getElementById('email_address').value = '';
             document.getElementById('system_prompt').value = '';
+            document.getElementById('model').value = '';
+            document.getElementById('reasoning_effort').value = '';
+            document.getElementById('text_verbosity').value = '';
+            document.getElementById('max_output_tokens').value = '';
+            document.getElementById('temperature').value = '';
+            document.getElementById('top_p').value = '';
             document.getElementById('promptModal').classList.add('show');
           }
           
@@ -630,9 +710,15 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
             const prompt = prompts.find(p => p.id === promptId);
             if (!prompt) return;
             currentPromptId = promptId;
-            document.getElementById('modalTitle').textContent = 'Edit Email Prompt';
+            document.getElementById('modalTitle').textContent = 'Edit Email Settings';
             document.getElementById('email_address').value = prompt.email_address;
-            document.getElementById('system_prompt').value = prompt.system_prompt;
+            document.getElementById('system_prompt').value = prompt.system_prompt || '';
+            document.getElementById('model').value = prompt.model || '';
+            document.getElementById('reasoning_effort').value = prompt.reasoning_effort || '';
+            document.getElementById('text_verbosity').value = prompt.text_verbosity || '';
+            document.getElementById('max_output_tokens').value = prompt.max_output_tokens || '';
+            document.getElementById('temperature').value = prompt.temperature || '';
+            document.getElementById('top_p').value = prompt.top_p || '';
             document.getElementById('promptModal').classList.add('show');
           }
           
@@ -668,7 +754,13 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
             const formData = new FormData(e.target);
             const data = {
               email_address: formData.get('email_address'),
-              system_prompt: formData.get('system_prompt')
+              system_prompt: formData.get('system_prompt') || null,
+              model: formData.get('model') || null,
+              reasoning_effort: formData.get('reasoning_effort') || null,
+              text_verbosity: formData.get('text_verbosity') || null,
+              max_output_tokens: formData.get('max_output_tokens') ? parseInt(formData.get('max_output_tokens')) : null,
+              temperature: formData.get('temperature') ? parseFloat(formData.get('temperature')) : null,
+              top_p: formData.get('top_p') ? parseFloat(formData.get('top_p')) : null
             };
             try {
               const url = currentPromptId ? \`/email-prompts/\${currentPromptId}\` : '/email-prompts';
@@ -680,14 +772,14 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
               });
               const result = await response.json();
               if (response.ok && result.success) {
-                showSuccess('Email prompt saved successfully!');
+                showSuccess('Email settings saved successfully!');
                 closeModal();
                 setTimeout(() => location.reload(), 1000);
               } else {
-                showError(result.error || 'Error saving prompt');
+                showError(result.error || 'Error saving settings');
               }
             } catch (error) {
-              showError('Error saving prompt');
+              showError('Error saving settings');
             }
           });
           
@@ -700,9 +792,23 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
 }
 
 function renderPromptCard(prompt: any): string {
-  const preview = prompt.system_prompt.length > 150 ? prompt.system_prompt.substring(0, 150) + '...' : prompt.system_prompt;
+  const promptPreview = prompt.system_prompt 
+    ? (prompt.system_prompt.length > 100 ? prompt.system_prompt.substring(0, 100) + '...' : prompt.system_prompt)
+    : null;
   const createdDate = new Date(prompt.created_at).toLocaleDateString();
   const updatedDate = prompt.updated_at && prompt.updated_at !== prompt.created_at ? new Date(prompt.updated_at).toLocaleDateString() : null;
+
+  // Build list of overridden settings
+  const overrides: string[] = [];
+  if (prompt.system_prompt) overrides.push('Custom Prompt');
+  if (prompt.model) overrides.push(`Model: ${prompt.model}`);
+  if (prompt.reasoning_effort) overrides.push(`Effort: ${prompt.reasoning_effort}`);
+  if (prompt.text_verbosity) overrides.push(`Verbosity: ${prompt.text_verbosity}`);
+  if (prompt.max_output_tokens) overrides.push(`Max Tokens: ${prompt.max_output_tokens}`);
+  if (prompt.temperature !== null && prompt.temperature !== undefined) overrides.push(`Temp: ${prompt.temperature}`);
+  if (prompt.top_p !== null && prompt.top_p !== undefined) overrides.push(`Top-P: ${prompt.top_p}`);
+
+  const overridesText = overrides.length > 0 ? overrides.join(' • ') : 'Using all defaults';
 
   return `
     <div class="prompt-card">
@@ -713,7 +819,10 @@ function renderPromptCard(prompt: any): string {
           <button class="btn btn-danger" onclick="deletePrompt(${prompt.id})">Delete</button>
         </div>
       </div>
-      <div class="prompt-preview">${escapeHtml(preview)}</div>
+      ${promptPreview ? `<div class="prompt-preview">${escapeHtml(promptPreview)}</div>` : ''}
+      <div class="prompt-overrides" style="color: #667eea; font-size: 0.85rem; font-weight: 500; margin-top: 0.75rem;">
+        ${overridesText}
+      </div>
       <div class="prompt-meta">
         <span>Created: ${createdDate}</span>
         ${updatedDate ? `<span>Updated: ${updatedDate}</span>` : ''}

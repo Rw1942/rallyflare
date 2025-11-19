@@ -68,6 +68,8 @@ export interface AiRequest {
     reasoningEffort: string;
     textVerbosity: string;
     maxOutputTokens: number;
+    temperature?: number; // 0-2, controls randomness (default: 1.0)
+    topP?: number; // 0-1, nucleus sampling (default: 1.0) - use temperature OR top_p, not both
     conversationHistory: {
         role: "user" | "assistant";
         content: string;

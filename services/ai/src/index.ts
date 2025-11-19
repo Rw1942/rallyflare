@@ -133,6 +133,8 @@ export default class AiService extends WorkerEntrypoint<Env> {
 
             if (request.reasoningEffort) payload.reasoning = { effort: request.reasoningEffort };
             if (request.textVerbosity) payload.text = { verbosity: request.textVerbosity };
+            if (request.temperature !== undefined) payload.temperature = request.temperature;
+            if (request.topP !== undefined) payload.top_p = request.topP;
 
             const aiStartTime = Date.now();
 
