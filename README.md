@@ -1,15 +1,15 @@
 # Rally - Email-Native AI Assistant
 
-Rally is an invisible, email-native AI assistant built on Cloudflare Workers. Users interact with Rally entirely through email—no login, no app, just intelligent replies powered by OpenAI's GPT-5.
+Rally is an invisible, email-native AI assistant built on Cloudflare Workers. Users interact with Rally entirely through email—no login, no app, just intelligent replies powered by OpenAI's GPT-5.1.
 
 ## Overview
 
-Rally receives emails via Postmark, processes them with GPT-5 (including full conversation thread history), and sends contextual replies—all within the same email thread. Everything is logged and searchable in Cloudflare D1 with detailed performance metrics.
+Rally receives emails via Postmark, processes them with GPT-5.1 (including full conversation thread history), and sends contextual replies—all within the same email thread. Everything is logged and searchable in Cloudflare D1 with detailed performance metrics.
 
 **Key Features:**
 - 📧 Receive emails via Postmark inbound webhooks
 - 🗄️ Store messages, participants, and metadata in Cloudflare D1
-- 🤖 **Process with GPT-5** using OpenAI's Responses API (low reasoning, fast)
+- 🤖 **Process with GPT-5.1** using OpenAI's Responses API (adaptive reasoning)
 - 🧵 **Thread-aware** - tracks up to 5 previous messages in conversation history
 - 📤 Send automated replies via Postmark with proper email threading
 - 🎨 **Beautiful admin dashboard** with modern, soft design
@@ -21,26 +21,32 @@ Rally receives emails via Postmark, processes them with GPT-5 (including full co
 
 ## Quick Start
 
-```bash
 # 1. Install dependencies
 npm install
 
 # 2. Create D1 database
 npx wrangler d1 create rally-database
-# Update database_id in wrangler.json with the returned ID
 
-# 3. Run migrations
+# 3. Create R2 bucket
+npx wrangler r2 bucket create rally-attachments
+
+# 4. Run migrations
 npx wrangler d1 migrations apply rally-database --remote
 
-# 4. Set secrets
-npx wrangler secret put POSTMARK_TOKEN
-npx wrangler secret put OPENAI_API_KEY
+# 5. Set secrets (for each service as needed)
+# Mailer needs Postmark token
+cd services/mailer && npx wrangler secret put POSTMARK_TOKEN
+# AI needs OpenAI key
+cd ../../services/ai && npx wrangler secret put OPENAI_API_KEY
 
-# 5. Deploy
-npx wrangler deploy
+# 6. Deploy Services
+cd ../../services/mailer && npx wrangler deploy
+cd ../ai && npx wrangler deploy
+cd ../attachments && npx wrangler deploy
+cd ../ingest && npx wrangler deploy
 
-# 6. Configure Postmark webhook to point to:
-# https://your-worker.workers.dev/postmark/inbound
+# 7. Configure Postmark webhook to point to the Ingest worker:
+# https://rallyflare.your-subdomain.workers.dev/postmark/inbound
 ```
 
 See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration.
@@ -70,11 +76,13 @@ Rally is designed to be **invisible** - your users never log in, never see a UI,
 
 | Component | Purpose |
 |-----------|---------|
-| **Cloudflare Worker** | Handles webhooks, OpenAI calls, and Postmark integration |
-| **Cloudflare D1** | Stores messages, participants, attachments, and settings |
-| **Cloudflare R2** | (Future) Storage for large attachments |
-| **Postmark** | Inbound + outbound email handling |
-| **OpenAI GPT-5** | LLM processing via Responses API with optimized reasoning effort |
+| **Ingest Service** | Main entry point. Handles webhooks, dashboard, D1 storage, and orchestration. |
+| **AI Service** | Dedicated worker for OpenAI interactions (GPT-5). |
+| **Mailer Service** | Dedicated worker for sending emails via Postmark. |
+| **Attachments Service** | Handles file uploads to Cloudflare R2. |
+| **Cloudflare D1** | Stores messages, participants, and metadata. |
+| **Cloudflare R2** | Stores email attachments. |
+| **Postmark** | Inbound + outbound email handling. |
 
 ## Setup Steps
 
@@ -123,9 +131,9 @@ This creates tables for:
 **`attachments`** - Attachment metadata (R2 storage coming soon)
 
 **`project_settings`** - Default AI configuration
-- Model selection (currently GPT-5)
+- Model selection (currently GPT-5.1)
 - Default system prompt
-- Temperature (deprecated for GPT-5, which uses reasoning effort)
+- Reasoning Effort (controls adaptive thinking depth)
 
 **`email_prompts`** - Email-specific AI behavior
 - Email address → custom system prompt mapping
@@ -205,9 +213,23 @@ npx wrangler r2 bucket create rally-attachments
 
 ### 7. Deploy
 
-Deploy the Worker to Cloudflare:
+Deploy each service individually. Order matters slightly (deploy dependencies first).
 
 ```bash
+# 1. Deploy Mailer
+cd services/mailer
+npx wrangler deploy
+
+# 2. Deploy AI
+cd ../ai
+npx wrangler deploy
+
+# 3. Deploy Attachments
+cd ../attachments
+npx wrangler deploy
+
+# 4. Deploy Ingest (Main Worker)
+cd ../ingest
 npx wrangler deploy
 ```
 
@@ -442,23 +464,23 @@ npx wrangler d1 execute rally-database --remote --command "SELECT subject, proce
 
 ```
 rallyflare/
-├── src/
-│   ├── index.ts           # Main Worker - routes, webhook handling, AI processing
-│   └── renderHtml.ts      # Dashboard, settings, and email prompts UI
-├── migrations/
-│   ├── 0001_create_comments_table.sql     # Original D1 template migration
-│   ├── 0002_create_rally_tables.sql       # Core Rally schema
-│   ├── 0003_add_message_direction.sql     # Inbound/outbound message tracking
-│   ├── 0004_update_model_to_gpt4o.sql     # GPT-5 upgrade
-│   ├── 0005_add_performance_metrics.sql   # Processing time & token tracking
-│   ├── 0006_add_email_specific_prompts.sql # Email-specific AI prompts
-│   └── 0007_add_user_tracking_and_compliance.sql # User tracking & GDPR compliance
-├── wrangler.json          # Worker configuration (DB binding, vars)
-├── package.json           # Dependencies and scripts
+├── services/
+│   ├── ingest/            # Main Worker - Orchestrator, Webhooks, Dashboard
+│   │   ├── src/
+│   │   └── wrangler.toml
+│   ├── ai/                # AI Service - OpenAI integration
+│   │   ├── src/
+│   │   └── wrangler.toml
+│   ├── mailer/            # Mailer Service - Postmark integration
+│   │   ├── src/
+│   │   └── wrangler.toml
+│   └── attachments/       # Attachments Service - R2 uploads
+│       ├── src/
+│       └── wrangler.toml
+├── shared/                # Shared types and utilities
+├── migrations/            # D1 database migrations
+├── package.json           # Root workspace configuration
 ├── tsconfig.json          # TypeScript configuration
-├── .dev.vars              # Local development secrets (gitignored)
-├── POSTMARK_SETUP.md      # Postmark webhook configuration guide
-├── DASHBOARD_GUIDE.md     # Dashboard design philosophy
 └── README.md              # This file
 ```
 
@@ -495,13 +517,13 @@ Note: GPT-5 uses `reasoning.effort` and `text.verbosity` instead of temperature.
 - `reasoning.effort: "low"` - Fast responses suitable for email
 - `text.verbosity: "low"` - Concise replies
 
-The model is fixed to `gpt-5` and uses the OpenAI Responses API (`/v1/responses` endpoint).
+The model is fixed to `gpt-5.1` and uses the OpenAI Responses API (`/v1/responses` endpoint).
 
 ## Roadmap
 
 ### ✅ Completed
 - Email receiving via Postmark inbound webhooks
-- GPT-5 integration with Responses API
+- GPT-5.1 integration with Responses API
 - Thread-aware conversation tracking (up to 5 messages)
 - Admin dashboard with incoming/outgoing views
 - Performance metrics tracking (time, tokens)
@@ -628,6 +650,6 @@ Built with:
 - [Cloudflare Workers](https://workers.cloudflare.com/) - Serverless execution
 - [Cloudflare D1](https://developers.cloudflare.com/d1/) - SQLite at the edge
 - [Postmark](https://postmarkapp.com/) - Reliable email infrastructure
-- [OpenAI GPT-5](https://openai.com/) - AI language model
+- [OpenAI GPT-5.1](https://openai.com/) - AI language model
 
 This project was initially bootstrapped from the [Cloudflare D1 Template](https://github.com/cloudflare/templates/tree/main/d1-template) and evolved into a full-featured email AI assistant.

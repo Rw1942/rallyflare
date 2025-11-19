@@ -17,6 +17,12 @@ interface Message {
   email_address?: string;
 }
 
+export interface PostmarkStatus {
+  status: 'ok' | 'warning' | 'error';
+  message?: string;
+  last_inbound_message_at?: string;
+}
+
 // Shared CSS - one place to maintain consistency
 const SHARED_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -197,15 +203,15 @@ const SHARED_STYLES = `
 function renderHeader(activePage: string, tagline: string): string {
   const pages = ['/', '/settings', '/email-prompts', '/users', '/requests'];
   const labels = ['Activity', 'Settings', 'Email Prompts', 'Users', 'Requests'];
-  
+
   return `
         <header>
             <h1 class="logo">Rally</h1>
       <p class="tagline">${tagline}</p>
             <nav class="nav">
-        ${pages.map((page, i) => 
-          `<a href="${page}" class="nav-button ${activePage === page ? 'active' : ''}">${labels[i]}</a>`
-        ).join('')}
+        ${pages.map((page, i) =>
+    `<a href="${page}" class="nav-button ${activePage === page ? 'active' : ''}">${labels[i]}</a>`
+  ).join('')}
             </nav>
         </header>
   `;
@@ -235,7 +241,7 @@ function renderLayout(title: string, activePage: string, tagline: string, conten
 export function renderDashboard(messages: Message[]) {
   const inbound = messages.filter(m => m.direction !== 'outbound');
   const outbound = messages.filter(m => m.direction === 'outbound');
-  
+
   const content = `
     <div class="stats">
       <div class="stat-card"><div class="stat-label">Total Messages</div><div class="stat-value">${messages.length}</div></div>
@@ -252,7 +258,7 @@ export function renderDashboard(messages: Message[]) {
       <div class="messages-grid">${outbound.length > 0 ? outbound.map(msg => renderMessageCard(msg, 'outbound')).join('') : renderEmptyState('No replies sent yet', '✉️')}</div>
             </div>
   `;
-  
+
   const styles = `
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 3rem; }
     .stat-card { background: white; padding: 1.5rem; border-radius: 16px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); border: 1px solid rgba(102, 126, 234, 0.1); }
@@ -287,7 +293,7 @@ export function renderDashboard(messages: Message[]) {
       .message-time { margin-left: 0; margin-top: 0.5rem; }
     }
   `;
-  
+
   const scripts = `<script>
           document.querySelectorAll('.message-card').forEach(card => {
             card.addEventListener('click', function() {
@@ -295,7 +301,7 @@ export function renderDashboard(messages: Message[]) {
             });
           });
   </script>`;
-  
+
   return renderLayout('Rally - Email Activity', '/', 'Your intelligent email assistant, working invisibly', content, styles, scripts);
 }
 
@@ -308,7 +314,7 @@ function renderMessageCard(msg: Message, type: 'inbound' | 'outbound'): string {
   const processingTimeDisplay = msg.processing_time_ms ? formatProcessingTime(msg.processing_time_ms) : null;
   const aiResponseTimeDisplay = msg.ai_response_time_ms ? formatProcessingTime(msg.ai_response_time_ms) : null;
   const tokenDisplay = (msg.tokens_input && msg.tokens_output) ? `${formatNumber(msg.tokens_input + msg.tokens_output)} tokens` : null;
-  
+
   return `
     <div class="message-card" data-message-id="${msg.id}">
       <div class="message-header">
@@ -338,19 +344,19 @@ function renderEmptyState(text: string, icon: string): string {
 }
 
 // Settings page
-export function renderSettings(settings: { 
-  system_prompt: string; 
-  model: string; 
-  reasoning_effort: "minimal" | "low" | "medium" | "high"; 
-  text_verbosity: "low" | "medium" | "high"; 
-  max_output_tokens: number 
+export function renderSettings(settings: {
+  system_prompt: string;
+  model: string;
+  reasoning_effort: "minimal" | "low" | "medium" | "high";
+  text_verbosity: "low" | "medium" | "high";
+  max_output_tokens: number
 } | null, postmarkStatus: PostmarkStatus) {
   const currentPrompt = settings?.system_prompt || 'You are Rally, an intelligent email assistant.';
-  const currentModel = settings?.model || 'gpt-5';
+  const currentModel = settings?.model || 'gpt-5.1';
   const currentReasoningEffort = settings?.reasoning_effort || 'low';
   const currentTextVerbosity = settings?.text_verbosity || 'low';
-  const currentMaxOutputTokens = settings?.max_output_tokens || 500; // Changed variable name
-  
+  const currentMaxOutputTokens = settings?.max_output_tokens || 500;
+
   const content = `
     <div class="card settings-card">
             <div class="settings-header">
@@ -360,7 +366,7 @@ export function renderSettings(settings: {
       <div id="successMessage" class="success-message">Settings saved successfully! Changes will apply to all new incoming emails.</div>
       <div id="errorMessage" class="error-message"></div>
             <div class="info-box">
-              <p><strong>Model:</strong> Using GPT-5 (OpenAI's most intelligent model, optimized for coding, instruction following, and reasoning)</p>
+              <p><strong>Model:</strong> Using GPT-5.1 (OpenAI's latest model with adaptive reasoning)</p>
               <p style="margin-top: 0.5rem;"><strong>Configuration:</strong> Low reasoning effort + Low verbosity for fast, concise email responses</p>
             </div>
             <form id="settingsForm" method="POST" action="/settings">
@@ -374,9 +380,9 @@ export function renderSettings(settings: {
                 <label class="form-label" for="model">AI Model</label>
                 <span class="form-help">Choose the OpenAI model for processing emails.</span>
                 <select class="form-input" id="model" name="model" required>
-                  <option value="gpt-5" ${currentModel === 'gpt-5' ? 'selected' : ''}>GPT-5 (Primary)</option>
-                  <option value="gpt-5-mini" ${currentModel === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini (Cheaper / High-volume)</option>
-                  <option value="gpt-5-nano" ${currentModel === 'gpt-5-nano' ? 'selected' : ''}>GPT-5 Nano (Simple Classification)</option>
+                  <option value="gpt-5.1" ${currentModel === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1 (Thinking)</option>
+                  <option value="gpt-5.1-chat-latest" ${currentModel === 'gpt-5.1-chat-latest' ? 'selected' : ''}>GPT-5.1 Instant</option>
+                  <option value="gpt-5.1-codex" ${currentModel === 'gpt-5.1-codex' ? 'selected' : ''}>GPT-5.1 Codex</option>
                 </select>
               </div>
 
@@ -440,7 +446,7 @@ export function renderSettings(settings: {
             ` : ''}
           </div>
   `;
-  
+
   const styles = `
     .container { max-width: 900px; }
     .settings-card, .status-card { padding: 2rem; margin-bottom: 2rem; }
@@ -468,7 +474,7 @@ export function renderSettings(settings: {
     .info-box ul { list-style-type: disc; margin-left: 1.25rem; margin-top: 0.5rem; }
     .info-box li { margin-bottom: 0.5rem; }
   `;
-  
+
   const scripts = `<script>
           function showError(message) {
             const el = document.getElementById('errorMessage');
@@ -507,27 +513,11 @@ export function renderSettings(settings: {
             }
           });
   </script>`;
-  
+
   return renderLayout('Rally - Settings', '/settings', 'Configure how Rally understands and responds to emails', content, styles, scripts);
 }
 
-function showSuccess(message: string) {
-  const el = document.getElementById('successMessage');
-  if (el) {
-    el.textContent = message;
-    el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 5000);
-  }
-}
 
-function showError(message: string) {
-  const el = document.getElementById('errorMessage');
-  if (el) {
-    el.textContent = message;
-    el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 5000);
-  }
-}
 
 // Email Prompts page
 export function renderEmailPrompts(emailPrompts: any[] = []) {
@@ -568,7 +558,7 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
           </div>
         </div>
   `;
-  
+
   const styles = `
     .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
     .page-title { font-size: 2rem; font-weight: 600; color: #2d3748; }
@@ -590,7 +580,7 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
     .error-message { background: #fef2f2; color: #dc2626; padding: 1rem; border-radius: 12px; margin-bottom: 1rem; display: none; }
     .error-message.show { display: block; }
   `;
-  
+
   const scripts = `<script>
           let currentPromptId = null;
           let prompts = ${JSON.stringify(emailPrompts)};
@@ -672,7 +662,7 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
       if (e.target.id === 'promptModal') closeModal();
     });
   </script>`;
-  
+
   return renderLayout('Rally - Email Prompts', '/email-prompts', 'Configure AI prompts for specific email addresses', content, styles, scripts);
 }
 
@@ -680,7 +670,7 @@ function renderPromptCard(prompt: any): string {
   const preview = prompt.system_prompt.length > 150 ? prompt.system_prompt.substring(0, 150) + '...' : prompt.system_prompt;
   const createdDate = new Date(prompt.created_at).toLocaleDateString();
   const updatedDate = prompt.updated_at && prompt.updated_at !== prompt.created_at ? new Date(prompt.updated_at).toLocaleDateString() : null;
-  
+
   return `
     <div class="prompt-card">
       <div class="prompt-header">
@@ -704,7 +694,7 @@ export function renderUsersPage(users: any[]): string {
   const totalUsers = users.length;
   const activeUsers = users.filter(u => !u.opt_out).length;
   const optedOutUsers = users.filter(u => u.opt_out).length;
-  
+
   const content = `
     <div class="stats">
       <div class="stat-card"><div class="stat-label">Total Users</div><div class="stat-value">${totalUsers}</div></div>
@@ -744,7 +734,7 @@ export function renderUsersPage(users: any[]): string {
       </table>
     </div>
   `;
-  
+
   const styles = `
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
     .stat-card { background: white; padding: 1.5rem; border-radius: 16px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); border: 1px solid rgba(102, 126, 234, 0.1); }
@@ -763,7 +753,7 @@ export function renderUsersPage(users: any[]): string {
     .compliance-yes { background: #28a745; }
     .compliance-no { background: #dc3545; }
   `;
-  
+
   return renderLayout('Rally - Users & Compliance', '/users', 'Track all email contacts with GDPR-compliant data collection', content, styles);
 }
 
@@ -771,7 +761,7 @@ export function renderUsersPage(users: any[]): string {
 export function renderRequestsPage(requests: any[]) {
   const activeRequests = requests.filter((r: any) => r.status === 'active');
   const closedRequests = requests.filter((r: any) => r.status !== 'active');
-  
+
   const content = `
           <div class="stats">
       <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value">${requests.length}</div></div>
@@ -792,7 +782,7 @@ export function renderRequestsPage(requests: any[]) {
           ` : ''}
     ${requests.length === 0 ? '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No requests yet. Send an email to Rally with "please respond by..." to start tracking</div></div>' : ''}
   `;
-  
+
   const styles = `
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 3rem; }
     .stat-card { background: white; padding: 1.5rem; border-radius: 16px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); border: 1px solid rgba(102, 126, 234, 0.1); }
@@ -815,7 +805,7 @@ export function renderRequestsPage(requests: any[]) {
     .status-badge.active { background: #dcfce7; color: #15803d; }
     .status-badge.closed { background: #e2e8f0; color: #4a5568; }
   `;
-  
+
   const scripts = `<script>
           document.querySelectorAll('.request-card').forEach(card => {
             card.addEventListener('click', function() {
@@ -823,7 +813,7 @@ export function renderRequestsPage(requests: any[]) {
             });
           });
   </script>`;
-  
+
   return renderLayout('Rally - Requests', '/requests', 'Track data collection requests and responses', content, styles, scripts);
 }
 
@@ -832,7 +822,7 @@ function renderRequestCard(req: any): string {
   const expectedCount = req.expected_count || 0;
   const progress = expectedCount > 0 ? (responseCount / expectedCount) * 100 : 0;
   const createdDate = formatTime(req.created_at);
-  
+
   return `
     <div class="request-card" data-request-id="${req.id}">
       <div class="request-header">
@@ -857,7 +847,7 @@ export function renderRequestDetail(request: any, responses: any[]) {
   const respondedEmails = responses.map((r: any) => r.responder_email);
   const missingParticipants = expectedParticipants.filter((email: string) => !respondedEmails.includes(email));
   const progress = expectedParticipants.length > 0 ? (responses.length / expectedParticipants.length) * 100 : 0;
-  
+
   const content = `
           <a href="/requests" class="back-button">← Back to Requests</a>
     <div class="card header-card">
@@ -888,7 +878,7 @@ export function renderRequestDetail(request: any, responses: any[]) {
           ` : ''}
     ${responses.length === 0 && expectedParticipants.length === 0 ? '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No responses yet</div></div>' : ''}
   `;
-  
+
   const styles = `
     .back-button { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; background: white; border: 2px solid #e2e8f0; border-radius: 12px; color: #4a5568; text-decoration: none; font-weight: 500; transition: all 0.2s ease; margin-bottom: 2rem; }
     .back-button:hover { background: #667eea; color: white; border-color: #667eea; }
@@ -913,13 +903,13 @@ export function renderRequestDetail(request: any, responses: any[]) {
     .missing-list ul { list-style: none; padding: 0; }
     .missing-list li { padding: 0.5rem 0; color: #856404; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; font-size: 0.875rem; }
   `;
-  
+
   return renderLayout(`Rally - ${escapeHtml(request.title)}`, '/requests', '', content, styles);
 }
 
 function renderResponseCard(resp: any): string {
   const extractedData = resp.extracted_data ? JSON.parse(resp.extracted_data) : null;
-  
+
   return `
     <div class="response-card">
       <div class="response-header">
@@ -954,8 +944,8 @@ function formatTime(isoString: string): string {
     if (diffHours < 24) return `${diffHours}h ago`;
     const diffDays = Math.floor(diffHours / 24);
     if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
       day: 'numeric',
       year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     });

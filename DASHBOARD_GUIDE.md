@@ -106,8 +106,8 @@ This allows the dashboard to cleanly separate incoming vs outgoing messages.
 To apply the database changes:
 
 ```bash
-npx wrangler d1 migrations apply rally_d1 --local  # For local testing
-npx wrangler d1 migrations apply rally_d1           # For production
+npx wrangler d1 migrations apply rally-database --local  # For local testing
+npx wrangler d1 migrations apply rally-database --remote # For production
 ```
 
 ## Implementation Notes

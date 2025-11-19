@@ -11,10 +11,8 @@ Rally receives inbound emails via Postmark webhooks. When someone sends an email
 First, deploy your worker to get the public URL:
 
 ```bash
-# Run migrations first
-npx wrangler d1 migrations apply rally-database
-
-# Deploy worker
+# Deploy the Ingest worker (handles webhooks)
+cd services/ingest
 npx wrangler deploy
 ```
 
@@ -44,6 +42,8 @@ Send a test email to your configured address. You can verify it worked by:
 
 1. Check your worker logs:
    ```bash
+   # Tail the ingest worker logs
+   cd services/ingest
    npx wrangler tail
    ```
 
@@ -95,7 +95,7 @@ When Rally receives the webhook:
 
 - Check Postmark's Activity log in their dashboard
 - Verify webhook URL is correct and ends with `/postmark/inbound`
-- Check Worker logs: `npx wrangler tail`
+- Check Ingest Worker logs: `cd services/ingest && npx wrangler tail`
 
 ### OpenAI not working?
 

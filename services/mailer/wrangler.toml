@@ -1,0 +1,6 @@
+name = "rally-mailer"
+main = "src/index.ts"
+compatibility_date = "2025-10-08"
+
+[vars]
+POSTMARK_URL = "https://api.postmarkapp.com/email"
