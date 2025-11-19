@@ -34,6 +34,7 @@ It’s built for people and companies stuck behind firewalls, legacy environment
 - **Secure by default:** Each email thread is siloed by Message-ID.
 - **Attachment-friendly:** PDFs, images, docs processed automatically.
 - **Predictable:** Replies look and feel just like ChatGPT’s web app.
+- **Rich Formatting:** Replies include bold, italics, lists, and code blocks rendered as clean HTML.
 
 ## 4. User Journey (End-to-End)
 
@@ -71,6 +72,7 @@ Examples:
 - Reply email is generated within seconds.
 - Subject is preserved.
 - Tone matches ChatGPT defaults unless user instructs otherwise.
+- **Markdown to HTML:** The AI's markdown response is converted to styled HTML (bold, lists, code blocks) for a rich email experience.
 
 **Result:** “This just works.”
 
@@ -159,8 +161,10 @@ Postmark → Cloudflare Worker → D1 + R2 → OpenAI REST → Postmark outbound
     - Rate limits per sender
     - Attachment size limits
 
-5.  **Reply Formatting**
-    - Messages come back clean, ChatGPT-style.
+5.  **Reply Formatting (New)**
+    - **Markdown to HTML:** AI responses are parsed using `marked` (v17+).
+    - **Inline Styles:** Custom renderer injects email-safe CSS for headings, links, lists, and code blocks.
+    - **Code Highlighting:** Code blocks are rendered in a monospaced font with a light gray background.
 
 ---
 
@@ -243,6 +247,27 @@ View logs:
 ```bash
 npx wrangler tail
 ```
+
+## Troubleshooting & Notes
+
+### CLI Deployment Issues
+If you encounter errors like `no such file or directory` when running `wrangler deploy`, ensure you are in the correct service directory.
+**Correct:**
+```bash
+cd services/ai
+npx wrangler deploy
+```
+**Incorrect:**
+```bash
+# From root
+npx wrangler deploy services/ai/src/index.ts # Will fail
+```
+
+### Markdown Rendering (`marked` Library)
+We use `marked` v17+ for converting Markdown to HTML.
+**Important:** The Renderer API in v17 passes a `token` object to renderer methods (e.g., `renderer.paragraph(token)`).
+- You **must** use `this.parser.parseInline(token.tokens)` to render inner content for block elements.
+- Do **not** use arrow functions for renderer overrides if you need `this` context (use `function(token) { ... }`).
 
 ## License
 
