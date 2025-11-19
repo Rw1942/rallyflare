@@ -128,20 +128,20 @@ const SHARED_STYLES = `
   .btn-danger { background: #e53e3e; color: white; padding: 0.5rem 1rem; font-size: 0.875rem; }
   .btn-danger:hover { background: #c53030; }
   
-  .form-group { margin-bottom: 1.5rem; }
+  .form-group { margin-bottom: 1rem; }
   .form-label { display: block; font-weight: 600; color: #2d3748; margin-bottom: 0.5rem; font-size: 0.95rem; }
-  
+
   .form-input, .form-textarea {
     width: 100%;
-    padding: 0.75rem 1rem;
+    padding: 0.5rem 0.75rem;
     border: 2px solid #e2e8f0;
     border-radius: 12px;
     font-family: inherit;
     font-size: 0.95rem;
     transition: border-color 0.2s ease;
   }
-  
-  .form-textarea { padding: 1rem; line-height: 1.6; resize: vertical; min-height: 150px; }
+
+  .form-textarea { padding: 0.75rem; line-height: 1.5; resize: vertical; min-height: 120px; }
   .form-input:focus, .form-textarea:focus {
     outline: none;
     border-color: #667eea;
@@ -534,15 +534,14 @@ export function renderSettings(settings: {
 
   const styles = `
     .container { max-width: 900px; }
-    .settings-card, .status-card { padding: 2rem; margin-bottom: 2rem; }
-    .settings-header { margin-bottom: 2rem; }
+    .settings-card, .status-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+    .settings-header { margin-bottom: 1.5rem; }
     .settings-title { font-size: 1.75rem; font-weight: 600; color: #2d3748; margin-bottom: 0.5rem; }
     .settings-subtitle { color: #718096; font-size: 0.95rem; }
     .form-help { display: block; color: #718096; font-size: 0.85rem; margin-bottom: 0.75rem; }
-    .form-textarea { min-height: 200px; }
     .info-box { background: #e8f4f8; border-left: 4px solid #0e7490; padding: 1rem; border-radius: 8px; margin-bottom: 2rem; }
     .info-box p { color: #0e7490; font-size: 0.9rem; margin: 0; }
-    .button-group { display: flex; gap: 1rem; margin-top: 2rem; }
+    .button-group { display: flex; gap: 1rem; margin-top: 1.5rem; }
     .success-message { background: #dcfce7; color: #15803d; padding: 1rem; border-radius: 12px; margin-bottom: 2rem; display: none; }
     .success-message.show { display: block; }
     .error-message { background: #fef2f2; color: #dc2626; padding: 1rem; border-radius: 12px; margin-bottom: 2rem; display: none; }
@@ -707,7 +706,7 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
   `;
 
   const styles = `
-    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
     .page-title { font-size: 2rem; font-weight: 600; color: #2d3748; }
     .prompts-grid { display: grid; gap: 1.5rem; margin-bottom: 2rem; }
     .prompt-card { background: white; border-radius: 16px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); border: 1px solid #e2e8f0; transition: all 0.2s ease; }

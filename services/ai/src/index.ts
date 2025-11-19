@@ -53,7 +53,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
                     historyStr += `\n\nPrevious Assistant Reply (${msg.receivedAt}):\n${msg.content}`;
                 }
             });
-            
+
             // Use processed text content if available (includes attachment list), otherwise fallback to raw TextBody
             let emailContent = request.processedTextContent || request.postmarkData.TextBody || "(No body content)";
             const MAX_CONTENT_LENGTH = 50000;
@@ -68,32 +68,47 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 userContentText += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
             }
 
-            // 2. Handle Attachments (Upload to OpenAI Files API first)
-            // Filter out small images (< 5KB) to avoid sending noise (icons, signatures).
-            // We upload ALL other attachments (PDFs, Docs, large images) regardless of ContentID,
-            // because even inline images need to be uploaded for the AI to "see" them.
+            // 2. Handle document attachments only (skip images - they're already in text as [Image] markers)
             const validAttachments = request.postmarkData.Attachments?.filter(att => {
-                const isSmallImage = att.ContentType.startsWith("image/") && att.ContentLength < 5000;
-                return !isSmallImage;
+                if (att.ContentType.startsWith("image/")) {
+                    console.log(`AI: Skipping image ${att.Name} (images already represented in text)`);
+                    return false;
+                }
+                // Only include document types that OpenAI supports
+                const supportedTypes = [
+                    'application/pdf',
+                    'text/plain',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'text/csv',
+                    'application/json',
+                    'text/html',
+                    'text/markdown'
+                ];
+                if (!supportedTypes.includes(att.ContentType)) {
+                    console.log(`AI: Skipping unsupported attachment ${att.Name} (${att.ContentType})`);
+                    return false;
+                }
+                return true;
             }) || [];
 
             const userMessageContent: any[] = [];
             let openaiUploadTimeMs = 0;
 
-            // Add uploaded files to content array
+            // Upload document attachments to Files API
             if (validAttachments.length > 0) {
-                console.log(`AI: Processing ${validAttachments.length} attachments`);
+                console.log(`AI: Processing ${validAttachments.length} document attachments`);
                 const uploadStartTime = Date.now();
-                
-                // Upload files in parallel
+
                 const uploadPromises = validAttachments.map(async (attachment) => {
-                    // Convert Base64 to Uint8Array
                     const binaryString = atob(attachment.Content);
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
-                    
+
                     const file = new File([bytes], attachment.Name, {
                         type: attachment.ContentType
                     });
@@ -103,8 +118,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
 
                 const fileIds = await Promise.all(uploadPromises);
                 openaiUploadTimeMs = Date.now() - uploadStartTime;
-                
-                // Add file references to the message content
+
                 fileIds.forEach(fileId => {
                     userMessageContent.push({
                         type: "input_file",
@@ -113,7 +127,6 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 });
             }
 
-            // Add the text prompt
             userMessageContent.push({
                 type: "input_text",
                 text: userContentText
@@ -133,13 +146,10 @@ export default class AiService extends WorkerEntrypoint<Env> {
 
             if (request.reasoningEffort) payload.reasoning = { effort: request.reasoningEffort };
             if (request.textVerbosity) payload.text = { verbosity: request.textVerbosity };
-            
-            // Note: GPT-5.1 Responses API does not support temperature or top_p
-            // We ignore request.temperature and request.topP here to avoid 400 errors
 
             const aiStartTime = Date.now();
 
-            // 4. Call OpenAI Responses API (JSON only)
+            // 4. Call OpenAI Responses API
             const resp = await fetch("https://api.openai.com/v1/responses", {
                 method: "POST",
                 headers: {
@@ -155,14 +165,13 @@ export default class AiService extends WorkerEntrypoint<Env> {
             }
 
             const json = await resp.json() as any;
-            console.log("AI: OpenAI Response:", JSON.stringify(json));
-            
+            console.log("AI: OpenAI Response received");
+
             const aiEndTime = Date.now();
             const aiResponseTimeMs = aiEndTime - aiStartTime;
 
-            // Parse response
             let assistantMessage = "";
-            
+
             if (json.output && Array.isArray(json.output)) {
                 const messageItem = json.output.find((item: any) => item.type === "message");
                 const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
@@ -176,11 +185,9 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 throw new Error(`No valid response from OpenAI. Response: ${JSON.stringify(json)}`);
             }
 
-            // Extract additional metrics from response
             const reasoningTokens = json.usage?.output_tokens_details?.reasoning_tokens;
             const cachedTokens = json.usage?.input_tokens_details?.cached_tokens;
 
-            // AI worker just returns plain text - let ingest handle all formatting
             return {
                 summary: assistantMessage.substring(0, 500),
                 reply: assistantMessage,
@@ -202,6 +209,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
             throw error;
         }
     }
+
 
     async fetch(request: Request): Promise<Response> {
         return new Response("AI Service Running");
