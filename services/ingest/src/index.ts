@@ -241,16 +241,13 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       
       const footer = `
 <br><br>
-<hr>
-<p style="font-size: 12px; color: #666; line-height: 1.6;">
-  <strong>Rally processed this email in ${totalTimeDisplay}:</strong><br>
-  • Received and parsed your email: ${ingestTime}ms<br>
-  ${attachmentTimeMs > 0 ? `• Saved attachments to storage: ${attachmentTimeMs}ms<br>` : ''}
-  ${openaiUploadTime > 0 ? `• Uploaded files for AI analysis: ${openaiUploadTime}ms<br>` : ''}
-  • AI generated response: ${aiTime}ms<br>
-  <br>
-  <strong>AI Usage:</strong> $${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)
-</p>
+<div style="margin-top: 20px; padding-top: 12px; border-top: 1px solid #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #888888; line-height: 1.5;">
+<span style="font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</span><br>
+<span style="display: inline-block; margin-left: 8px;">&bull; Received and parsed your email: ${ingestTime}ms</span><br>
+${attachmentTimeMs > 0 ? `<span style="display: inline-block; margin-left: 8px;">&bull; Saved attachments to storage: ${attachmentTimeMs}ms</span><br>` : ''}${openaiUploadTime > 0 ? `<span style="display: inline-block; margin-left: 8px;">&bull; Uploaded files for AI analysis: ${openaiUploadTime}ms</span><br>` : ''}<span style="display: inline-block; margin-left: 8px;">&bull; AI generated response: ${aiTime}ms</span><br>
+<br>
+<span style="font-weight: 600; color: #666666;">AI Usage:</span> <span style="color: #888888;">$${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)</span>
+</div>
 `;
       
       const textFooter = `\n\n---\nRally processed this email in ${totalTimeDisplay}:\n• Received and parsed your email: ${ingestTime}ms\n${attachmentTimeMs > 0 ? `• Saved attachments to storage: ${attachmentTimeMs}ms\n` : ''}${openaiUploadTime > 0 ? `• Uploaded files for AI analysis: ${openaiUploadTime}ms\n` : ''}• AI generated response: ${aiTime}ms\n\nAI Usage: $${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)`;
