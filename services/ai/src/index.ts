@@ -11,45 +11,58 @@ export interface Env {
 const renderer = new marked.Renderer();
 
 // Override heading to add styles
-renderer.heading = ({ text, depth }) => {
+renderer.heading = function(token) {
+  const { text, depth } = token as any;
   const sizes = ["24px", "20px", "18px", "16px", "14px", "12px"];
   const size = sizes[depth - 1] || "16px";
-  return `<h${depth} style="font-family: sans-serif; color: #333; font-size: ${size}; margin-top: 20px; margin-bottom: 10px;">${text}</h${depth}>`;
+  const content = this.parser.parseInline(token.tokens);
+  return `<h${depth} style="font-family: sans-serif; color: #333; font-size: ${size}; margin-top: 20px; margin-bottom: 10px;">${content}</h${depth}>`;
 };
 
 // Override link to add styles
-renderer.link = ({ href, title, text }) => {
-  return `<a href="${href}" title="${title || ''}" style="color: #007bff; text-decoration: none;">${text}</a>`;
+renderer.link = function(token) {
+  const { href, title, text } = token as any;
+  const content = this.parser.parseInline(token.tokens);
+  return `<a href="${href}" title="${title || ''}" style="color: #007bff; text-decoration: none;">${content}</a>`;
 };
 
 // Override paragraph to add styles
-renderer.paragraph = ({ text }) => {
-  return `<p style="font-family: sans-serif; color: #333; line-height: 1.6; margin-bottom: 15px;">${text}</p>`;
+renderer.paragraph = function(token) {
+  const content = this.parser.parseInline(token.tokens);
+  return `<p style="font-family: sans-serif; color: #333; line-height: 1.6; margin-bottom: 15px;">${content}</p>`;
 };
 
 // Override list to add styles
-renderer.list = ({ body, ordered }) => {
+renderer.list = function(token) {
+  const { ordered, start } = token as any;
+  const body = this.parser.parse(token.items);
   const tag = ordered ? "ol" : "ul";
-  return `<${tag} style="font-family: sans-serif; color: #333; padding-left: 20px; margin-bottom: 15px;">${body}</${tag}>`;
+  const startAttr = (ordered && start !== 1) ? ` start="${start}"` : '';
+  return `<${tag}${startAttr} style="font-family: sans-serif; color: #333; padding-left: 20px; margin-bottom: 15px;">${body}</${tag}>`;
 };
 
-renderer.listitem = ({ text }) => {
-  return `<li style="margin-bottom: 5px;">${text}</li>`;
+renderer.listitem = function(token) {
+  const content = this.parser.parse(token.tokens);
+  return `<li style="margin-bottom: 5px;">${content}</li>`;
 };
 
 // Override code block to add styles
-renderer.code = ({ text, lang }) => {
+renderer.code = function(token) {
+  const { text, lang } = token as any;
+  // Code blocks usually have raw text, no inline parsing needed
   return `<pre style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: monospace; font-size: 13px; color: #333; margin-bottom: 15px;"><code>${text}</code></pre>`;
 };
 
 // Override codespan to add styles
-renderer.codespan = ({ text }) => {
+renderer.codespan = function(token) {
+  const { text } = token as any;
   return `<code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 13px; color: #d63384;">${text}</code>`;
 };
 
 // Override blockquote to add styles
-renderer.blockquote = ({ text }) => {
-  return `<blockquote style="border-left: 4px solid #ccc; margin: 0; padding-left: 15px; color: #666; font-style: italic; margin-bottom: 15px;">${text}</blockquote>`;
+renderer.blockquote = function(token) {
+  const content = this.parser.parse(token.tokens);
+  return `<blockquote style="border-left: 4px solid #ccc; margin: 0; padding-left: 15px; color: #666; font-style: italic; margin-bottom: 15px;">${content}</blockquote>`;
 };
 
 // Set options
