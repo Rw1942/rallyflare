@@ -173,15 +173,25 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 throw new Error(`No valid response from OpenAI. Response: ${JSON.stringify(json)}`);
             }
 
+            // Extract additional metrics from response
+            const reasoningTokens = json.usage?.output_tokens_details?.reasoning_tokens;
+            const cachedTokens = json.usage?.input_tokens_details?.cached_tokens;
+
             // AI worker just returns plain text - let ingest handle all formatting
             return {
                 summary: assistantMessage.substring(0, 500),
                 reply: assistantMessage,
                 tokensInput: json.usage?.input_tokens,
                 tokensOutput: json.usage?.output_tokens,
+                reasoningTokens,
+                cachedTokens,
                 aiResponseTimeMs,
                 openaiUploadTimeMs,
                 openaiResponseId: json.id,
+                serviceTier: json.service_tier,
+                reasoningEffort: json.reasoning?.effort,
+                temperature: json.temperature,
+                textVerbosity: json.text?.verbosity,
             };
 
         } catch (error) {

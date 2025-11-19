@@ -82,8 +82,14 @@ export interface AiResponse {
     reply: string; // Plain text only - ingest handles formatting
     tokensInput?: number;
     tokensOutput?: number;
+    reasoningTokens?: number; // Tokens used for reasoning (separate from regular output)
+    cachedTokens?: number; // Input tokens served from cache (prompt caching)
     aiResponseTimeMs?: number;
     openaiUploadTimeMs?: number;
     extractedData?: any;
     openaiResponseId?: string;
+    serviceTier?: string; // OpenAI service tier used (e.g., "default", "auto")
+    reasoningEffort?: string; // Reasoning effort level used
+    temperature?: number; // Temperature setting used
+    textVerbosity?: string; // Text verbosity level used
 }

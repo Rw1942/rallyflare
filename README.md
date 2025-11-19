@@ -275,13 +275,22 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 - `email_prompts` - Email-specific AI prompts
 - `users` - Contact tracking and compliance
 
-**Performance columns:**
-- `processing_time_ms` - Total end-to-end time
-- `ingest_time_ms` - Parsing and coordination
-- `attachment_time_ms` - R2 upload time
-- `ai_response_time_ms` - OpenAI API response time
+**Performance columns (all metrics shown in email footer):**
+- `processing_time_ms` - Total end-to-end processing time
+- `ingest_time_ms` - Parsing and coordination overhead
+- `attachment_time_ms` - R2 storage time (0 if no attachments)
+- `openai_upload_time_ms` - File upload to OpenAI (0 if no files)
+- `ai_response_time_ms` - OpenAI generation time
 - `mailer_time_ms` - Email send time
-- `tokens_input` / `tokens_output` - For cost calculation
+- `tokens_input` / `tokens_output` - Token usage for cost calculation
+- `reasoning_tokens` - Tokens used for reasoning (separate from output)
+- `cached_tokens` - Input tokens served from prompt cache
+- `cost_dollars` - Total cost of AI processing per message
+- `model` - AI model used (e.g., "gpt-5.1")
+- `service_tier` - OpenAI service tier (e.g., "default")
+- `reasoning_effort` - Reasoning effort level used
+- `temperature` - Temperature setting used
+- `text_verbosity` - Text verbosity level used
 
 ## Admin Dashboard
 

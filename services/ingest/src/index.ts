@@ -219,36 +219,48 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // 6. Send Reply via Mailer
     let sentAt: string | null = null;
     let mailerTimeMs: number | null = null;
+    // These variables store all metrics shown in the email footer
+    let ingestTimeMs: number = 0;
+    let openaiUploadTimeMs: number = 0;
+    let costDollars: number = 0;
+    
     if (aiResponse.reply) {
       const replyToAddress = extractRallyEmailAddress(postmarkData);
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
-      // Calculate costs and timing for footer
+      // Calculate timing breakdown for footer (shows user how long each step took)
       const aiTime = aiResponse.aiResponseTimeMs || 0;
-      const openaiUploadTime = aiResponse.openaiUploadTimeMs || 0;
+      openaiUploadTimeMs = aiResponse.openaiUploadTimeMs || 0;
       const totalTimeSoFar = Date.now() - processingStartTime;
-      const ingestTime = Math.max(0, totalTimeSoFar - aiTime - attachmentTimeMs - openaiUploadTime);
+      // Ingest time = overhead time not spent on AI, attachments, or uploads
+      ingestTimeMs = Math.max(0, totalTimeSoFar - aiTime - attachmentTimeMs - openaiUploadTimeMs);
       
+      // Calculate cost to show user their AI spend (rates from project_settings table)
       const inputTokens = aiResponse.tokensInput || 0;
       const outputTokens = aiResponse.tokensOutput || 0;
-      const cost = calculateCost(
+      costDollars = calculateCost(
         inputTokens, 
         outputTokens, 
-        defaultSettings?.cost_input_per_1m ?? 2.50, 
-        defaultSettings?.cost_output_per_1m ?? 10.00
+        defaultSettings?.cost_input_per_1m ?? 2.50,  // Fallback to GPT-4 pricing
+        defaultSettings?.cost_output_per_1m ?? 10.00  // Fallback to GPT-4 pricing
       );
       
-      // Build email with template (handles formatting + footer + structure)
+      // Build email with template (adds footer with all metrics to reply body)
       const { textBody, htmlBody } = buildEmailWithFooter(aiResponse.reply, {
         totalTimeMs: totalTimeSoFar,
-        ingestTimeMs: ingestTime,
+        ingestTimeMs,
         attachmentTimeMs,
-        openaiUploadTimeMs: openaiUploadTime,
+        openaiUploadTimeMs,
         aiTimeMs: aiTime,
         inputTokens,
         outputTokens,
-        costInDollars: cost
+        costInDollars: costDollars,
+        reasoningTokens: aiResponse.reasoningTokens,
+        cachedTokens: aiResponse.cachedTokens,
+        model: aiRequest.model,
+        serviceTier: aiResponse.serviceTier,
+        reasoningEffort: aiResponse.reasoningEffort
       });
       
       const emailReply: EmailReply = {
@@ -270,18 +282,23 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       }
     }
 
-    // 7. Update D1
+    // 7. Update D1 with all processing metrics (matches footer items)
     const processingTimeMs = Date.now() - processingStartTime;
     await env.DB.prepare(`
       UPDATE messages
       SET llm_summary = ?, llm_reply = ?, tokens_input = ?, tokens_output = ?, 
       processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?,
-      attachment_time_ms = ?, mailer_time_ms = ?, ingest_time_ms = ?
+      attachment_time_ms = ?, mailer_time_ms = ?, ingest_time_ms = ?, openai_upload_time_ms = ?, cost_dollars = ?,
+      reasoning_tokens = ?, cached_tokens = ?, model = ?, service_tier = ?, reasoning_effort = ?,
+      temperature = ?, text_verbosity = ?
       WHERE id = ?
     `).bind(
       aiResponse.summary, aiResponse.reply, aiResponse.tokensInput || null, aiResponse.tokensOutput || null,
       processingTimeMs, aiResponse.aiResponseTimeMs || null, sentAt, aiResponse.openaiResponseId || null,
-      attachmentTimeMs, mailerTimeMs, Math.max(0, processingTimeMs - (aiResponse.aiResponseTimeMs || 0) - attachmentTimeMs - (aiResponse.openaiUploadTimeMs || 0) - (mailerTimeMs || 0)),
+      attachmentTimeMs, mailerTimeMs, ingestTimeMs, openaiUploadTimeMs, costDollars,
+      aiResponse.reasoningTokens || null, aiResponse.cachedTokens || null, aiRequest.model,
+      aiResponse.serviceTier || null, aiResponse.reasoningEffort || null,
+      aiResponse.temperature || null, aiResponse.textVerbosity || null,
       internalId
     ).run();
 
@@ -323,7 +340,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
             const errorReply: EmailReply = {
                 from: replyToAddress || "no-reply@rallyflare.com",
                 to: recipient,
-                subject: `Re: ${postmarkData.Subject || "Your Request"} - Error`,
+                subject: `Re: ${postmarkData.Subject || "Your Request"}`,
                 textBody,
                 htmlBody,
                 replyTo: replyToAddress || "no-reply@rallyflare.com",
