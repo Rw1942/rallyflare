@@ -14,6 +14,17 @@ export default class AiService extends WorkerEntrypoint<Env> {
         console.log("AI: Generating reply for message", request.messageId);
 
         try {
+            // --- Check for Attachments (Strict Fail) ---
+            // As per user rule: "Just fail but reply there was a failure to the user"
+            if (request.postmarkData.Attachments && request.postmarkData.Attachments.length > 0) {
+                console.log("AI: Attachments detected. Aborting as GPT-5.1 text-only mode cannot process them.");
+                return {
+                    summary: "Failed: Attachments detected but not supported.",
+                    reply: "I received your email, but it contains attachments. I am currently unable to process files or images. Please resend your request as text only.",
+                    aiResponseTimeMs: 0,
+                };
+            }
+
             const openai = new OpenAI({
                 apiKey: this.env.OPENAI_API_KEY,
             });
@@ -41,18 +52,6 @@ export default class AiService extends WorkerEntrypoint<Env> {
             // Request context
             if (request.requestContext) {
                 input += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
-            }
-
-            // Handle Attachments (Awareness only, for strict GPT-5.1 text compliance)
-            const attachmentNames: string[] = [];
-            if (request.postmarkData.Attachments && request.postmarkData.Attachments.length > 0) {
-                request.postmarkData.Attachments.forEach(att => {
-                    attachmentNames.push(att.Name);
-                });
-            }
-
-            if (attachmentNames.length > 0) {
-                input += `\n\n[System Note: The user also attached the following files: ${attachmentNames.join(", ")}]`;
             }
 
             const aiStartTime = Date.now();
