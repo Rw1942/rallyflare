@@ -67,6 +67,10 @@ export default {
 // ... (Copying dashboard functions from original index.ts - simplified for this context)
 // I will implement the dashboard functions in a separate block or file if I could, but here I'll put them at the bottom.
 
+function extractRallyEmailAddress(postmarkData: PostmarkInboundMessage): string {
+  return postmarkData.OriginalRecipient || postmarkData.ToFull?.[0]?.Email || postmarkData.To;
+}
+
 async function handlePostmarkInbound(request: Request, env: Env): Promise<Response> {
   // Auth check
   const authHeader = request.headers.get('Authorization');
@@ -84,7 +88,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     const receivedAt = new Date().toISOString();
 
     // 1. Store Message in D1
-    const rallyEmailAddress = postmarkData.OriginalRecipient || postmarkData.ToFull?.[0]?.Email || postmarkData.To;
+    const rallyEmailAddress = extractRallyEmailAddress(postmarkData);
 
     await env.DB.prepare(`
       INSERT INTO messages (
@@ -143,9 +147,9 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       };
     }).filter(Boolean) as any[];
 
-    // 4. Get System Prompt
+    // 4. Get System Prompt and Settings
     const emailPromptResult = await env.DB.prepare("SELECT system_prompt FROM email_prompts WHERE email_address = ? LIMIT 1").bind(rallyEmailAddress).first();
-    const defaultSettings = await env.DB.prepare("SELECT system_prompt FROM project_settings WHERE project_slug = 'default' LIMIT 1").first<{ system_prompt: string }>();
+    const defaultSettings = await env.DB.prepare("SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1").first<{ system_prompt: string, model: string, reasoning_effort: string, text_verbosity: string, max_output_tokens: number }>();
     const systemPrompt = (emailPromptResult?.system_prompt as string) || defaultSettings?.system_prompt || "You are Rally.";
 
     // 5. Call AI Service
@@ -154,6 +158,10 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       postmarkData,
       rallyEmailAddress,
       systemPrompt,
+      model: defaultSettings?.model || "gpt-5.1",
+      reasoningEffort: defaultSettings?.reasoning_effort || "medium",
+      textVerbosity: defaultSettings?.text_verbosity || "low",
+      maxOutputTokens: defaultSettings?.max_output_tokens || 1000,
       conversationHistory
     };
 
@@ -162,11 +170,12 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // 6. Send Reply via Mailer
     let sentAt: string | null = null;
     if (aiResponse.reply) {
-      const replyToAddress = postmarkData.OriginalRecipient || postmarkData.ToFull?.[0]?.Email || postmarkData.To;
+      const replyToAddress = extractRallyEmailAddress(postmarkData);
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
       const emailReply: EmailReply = {
+        from: replyToAddress, // Use the Rally email address that received the original message
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
         textBody: aiResponse.reply,
@@ -206,7 +215,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       `).bind(
         crypto.randomUUID(), sentAt, sentAt, `Re: ${postmarkData.Subject}`,
         crypto.randomUUID(), postmarkData.MessageID,
-        "Rally", "requests@rallycollab.com", aiResponse.reply,
+        "Rally", rallyEmailAddress, aiResponse.reply,
         'outbound', internalId, rallyEmailAddress, postmarkData.FromFull?.Email || postmarkData.From
       ).run();
     }

@@ -15,7 +15,7 @@ export default class MailerService extends WorkerEntrypoint<Env> {
 
         try {
             const emailBody = {
-                From: "Rally <requests@rallycollab.com>",
+                From: reply.from,
                 ReplyTo: reply.replyTo,
                 To: reply.to,
                 Subject: reply.subject,

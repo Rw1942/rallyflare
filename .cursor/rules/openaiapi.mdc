@@ -1,8 +1,3 @@
----
-description: When using the OpenAI API (REST, for Cloudflare Workers)
-alwaysApply: false
----
-
 # GPT-5.1 Developer Guide (REST Only)
 
 Cloudflare Workers • TypeScript • D1 • R2
@@ -29,7 +24,11 @@ const headers = (env: Env) => ({
 export async function chat(env: Env, prompt: string) {
   const body = {
     model: "gpt-5.1",
-    input: [{ role: "user", content: prompt }]
+    input: [{ role: "user", content: prompt }],
+    // Optional configuration
+    reasoning: { effort: "medium" }, // low, medium, high
+    text: { verbosity: "low" },      // low, medium, high
+    max_output_tokens: 1000
   };
 
   const resp = await fetch("https://api.openai.com/v1/responses", {
@@ -42,7 +41,11 @@ export async function chat(env: Env, prompt: string) {
   });
 
   const json = await resp.json();
-  return json.output_text;
+  
+  // Parse response from output array
+  const messageItem = json.output?.find((item: any) => item.type === "message");
+  const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
+  return contentItem?.text || "";
 }
 
 // Usage example:
@@ -65,7 +68,9 @@ export async function streamChat(env: Env, prompt: string) {
     },
     body: JSON.stringify({
       model: "gpt-5.1",
-      input: [{ role: "user", content: prompt }]
+      input: [{ role: "user", content: prompt }],
+      reasoning: { effort: "medium" },
+      text: { verbosity: "low" }
     }),
   });
 
@@ -137,6 +142,7 @@ const file = new File([arrayBuffer], key, {
 const { body, boundary } = buildMultipart({
   model: "gpt-5.1",
   input: JSON.stringify([{ role: "user", content: "Summarize this file." }]),
+  reasoning: { effort: "medium" },
   file
 });
 
@@ -151,7 +157,9 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
 });
 
 const json = await resp.json();
-const text = json.output_text;
+const messageItem = json.output?.find((item: any) => item.type === "message");
+const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
+const text = contentItem?.text || "";
 ```
 
 ---
@@ -180,7 +188,9 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
 });
 
 const json = await resp.json();
-const text = json.output_text;
+const messageItem = json.output?.find((item: any) => item.type === "message");
+const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
+const text = contentItem?.text || "";
 ```
 
 ---
@@ -219,12 +229,16 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     input: rows.map(m => ({
       role: m.role,
       content: m.content
-    }))
+    })),
+    reasoning: { effort: "medium" },
+    text: { verbosity: "low" }
   })
 });
 
 const out = await resp.json();
-const outputText = out.output_text;
+const messageItem = out.output?.find((item: any) => item.type === "message");
+const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
+const outputText = contentItem?.text || "";
 
 await env.DB.prepare(
   "INSERT INTO chat_messages (session_id, role, content, ts) VALUES (?, ?, ?, ?)"
@@ -253,7 +267,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   let payload: any = {
     model: "gpt-5.1",
-    input: JSON.stringify([{ role: "user", content: prompt }])
+    input: JSON.stringify([{ role: "user", content: prompt }]),
+    reasoning: { effort: "medium" },
+    text: { verbosity: "low" }
   };
 
   let headers: Record<string, string> = {
@@ -278,7 +294,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   });
 
   const out = await resp.json();
-  return new Response(out.output_text, { status: 200 });
+  const messageItem = out.output?.find((item: any) => item.type === "message");
+  const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
+  return new Response(contentItem?.text || "", { status: 200 });
 };
 ```
 

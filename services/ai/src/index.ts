@@ -42,13 +42,14 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`
             };
 
-            const payload = {
-                model: "gpt-5.1",
+            const payload: any = {
+                model: request.model,
                 input: [{ role: "user", content: prompt }],
-                reasoning: { effort: "low" },
-                text: { verbosity: "low" },
-                max_output_tokens: 500,
+                max_output_tokens: request.maxOutputTokens,
             };
+
+            if (request.reasoningEffort) payload.reasoning = { effort: request.reasoningEffort };
+            if (request.textVerbosity) payload.text = { verbosity: request.textVerbosity };
 
             // Check for Attachments
             // We will take the FIRST attachment if available, to keep it simple per instructions.
@@ -98,13 +99,25 @@ export default class AiService extends WorkerEntrypoint<Env> {
             }
 
             const json = await resp.json() as any;
+            console.log("AI: OpenAI Response:", JSON.stringify(json));
+            
             const aiEndTime = Date.now();
             const aiResponseTimeMs = aiEndTime - aiStartTime;
 
-            const assistantMessage = json.output_text || "";
+            // Parse response from new format (output array) or fallback to old format (output_text)
+            let assistantMessage = "";
+            
+            if (json.output && Array.isArray(json.output)) {
+                const messageItem = json.output.find((item: any) => item.type === "message");
+                const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
+                assistantMessage = contentItem?.text || "";
+            } else {
+                assistantMessage = json.output_text || "";
+            }
 
             if (!assistantMessage) {
-                throw new Error("No valid response from OpenAI");
+                console.error("AI: Invalid response format:", json);
+                throw new Error(`No valid response from OpenAI. Response: ${JSON.stringify(json)}`);
             }
 
             return {

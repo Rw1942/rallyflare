@@ -47,6 +47,7 @@ export interface PostmarkInboundMessage {
 }
 
 export interface EmailReply {
+    from: string; // The Rally email address that received the original message
     to: string;
     subject: string;
     textBody: string;
@@ -62,6 +63,10 @@ export interface AiRequest {
     postmarkData: PostmarkInboundMessage;
     rallyEmailAddress: string;
     systemPrompt: string;
+    model: string;
+    reasoningEffort: string;
+    textVerbosity: string;
+    maxOutputTokens: number;
     conversationHistory: {
         role: "user" | "assistant";
         content: string;
