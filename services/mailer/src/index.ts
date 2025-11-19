@@ -10,8 +10,9 @@ export default class MailerService extends WorkerEntrypoint<Env> {
     /**
      * Send an email via Postmark
      */
-    async sendEmail(reply: EmailReply): Promise<{ success: boolean; sentAt?: string; error?: string }> {
+    async sendEmail(reply: EmailReply): Promise<{ success: boolean; sentAt?: string; error?: string; sendTimeMs?: number }> {
         console.log("Mailer: Sending email to", reply.to);
+        const startTime = Date.now();
 
         try {
             const emailBody = {
@@ -51,8 +52,9 @@ export default class MailerService extends WorkerEntrypoint<Env> {
             }
 
             const sentAt = new Date().toISOString();
+            const sendTimeMs = Date.now() - startTime;
             console.log("Mailer: Email sent successfully at", sentAt);
-            return { success: true, sentAt };
+            return { success: true, sentAt, sendTimeMs };
 
         } catch (error) {
             console.error("Mailer: Internal error:", error);

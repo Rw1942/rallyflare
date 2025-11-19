@@ -349,13 +349,17 @@ export function renderSettings(settings: {
   model: string;
   reasoning_effort: "minimal" | "low" | "medium" | "high";
   text_verbosity: "low" | "medium" | "high";
-  max_output_tokens: number
+  max_output_tokens: number;
+  cost_input_per_1m?: number;
+  cost_output_per_1m?: number;
 } | null, postmarkStatus: PostmarkStatus) {
   const currentPrompt = settings?.system_prompt || 'You are Rally, an intelligent email assistant.';
   const currentModel = settings?.model || 'gpt-5.1';
   const currentReasoningEffort = settings?.reasoning_effort || 'low';
   const currentTextVerbosity = settings?.text_verbosity || 'low';
   const currentMaxOutputTokens = settings?.max_output_tokens || 500;
+  const currentCostInput = settings?.cost_input_per_1m ?? 2.50;
+  const currentCostOutput = settings?.cost_output_per_1m ?? 10.00;
 
   const content = `
     <div class="card settings-card">
@@ -379,10 +383,9 @@ export function renderSettings(settings: {
               <div class="form-group">
                 <label class="form-label" for="model">AI Model</label>
                 <span class="form-help">Choose the OpenAI model for processing emails.</span>
-                <select class="form-input" id="model" name="model" required>
+                <select class="form-input" id="model" name="model" required onchange="updateCosts(this.value)">
                   <option value="gpt-5.1" ${currentModel === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1 (Thinking)</option>
-                  <option value="gpt-5.1-chat-latest" ${currentModel === 'gpt-5.1-chat-latest' ? 'selected' : ''}>GPT-5.1 Instant</option>
-                  <option value="gpt-5.1-codex" ${currentModel === 'gpt-5.1-codex' ? 'selected' : ''}>GPT-5.1 Codex</option>
+                  <option value="gpt-5.1-mini" ${currentModel === 'gpt-5.1-mini' ? 'selected' : ''}>GPT-5.1 Mini</option>
                 </select>
               </div>
 
@@ -412,6 +415,21 @@ export function renderSettings(settings: {
                 <span class="form-help">Limits the length of the AI's reply. Lower values produce shorter responses. (Default: 500)</span>
                 <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" value="${currentMaxOutputTokens}" min="50" max="128000" required>
               </div>
+
+              <div class="form-group">
+                <label class="form-label">Cost Settings (per 1M tokens)</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                  <div>
+                    <label class="form-label" for="cost_input_per_1m" style="font-size: 0.85rem;">Input Cost ($)</label>
+                    <input type="number" step="0.01" class="form-input" id="cost_input_per_1m" name="cost_input_per_1m" value="${currentCostInput}" required>
+                  </div>
+                  <div>
+                    <label class="form-label" for="cost_output_per_1m" style="font-size: 0.85rem;">Output Cost ($)</label>
+                    <input type="number" step="0.01" class="form-input" id="cost_output_per_1m" name="cost_output_per_1m" value="${currentCostOutput}" required>
+                  </div>
+                </div>
+              </div>
+
               <div class="button-group">
                 <button type="submit" class="btn btn-primary">Save Settings</button>
           <a href="/" class="btn btn-secondary">Cancel</a>
@@ -485,6 +503,19 @@ export function renderSettings(settings: {
             }
           }
 
+          function updateCosts(model) {
+            const inputEl = document.getElementById('cost_input_per_1m');
+            const outputEl = document.getElementById('cost_output_per_1m');
+            
+            if (model === 'gpt-5.1') {
+              inputEl.value = 1.25;
+              outputEl.value = 10.00;
+            } else if (model === 'gpt-5.1-mini') {
+              inputEl.value = 0.25;
+              outputEl.value = 2.00;
+            }
+          }
+
           document.getElementById('settingsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
       const formData = new FormData(e.target);
@@ -494,6 +525,8 @@ export function renderSettings(settings: {
         reasoning_effort: formData.get('reasoning_effort'),
         text_verbosity: formData.get('text_verbosity'),
         max_output_tokens: parseInt(formData.get('max_output_tokens')),
+        cost_input_per_1m: parseFloat(formData.get('cost_input_per_1m')),
+        cost_output_per_1m: parseFloat(formData.get('cost_output_per_1m')),
       };
             try {
               const response = await fetch('/settings', {

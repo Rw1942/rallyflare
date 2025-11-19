@@ -144,10 +144,12 @@ export default class AiService extends WorkerEntrypoint<Env> {
             }) || [];
 
             const userMessageContent: any[] = [];
+            let openaiUploadTimeMs = 0;
 
             // Add uploaded files to content array
             if (validAttachments.length > 0) {
                 console.log(`AI: Processing ${validAttachments.length} attachments`);
+                const uploadStartTime = Date.now();
                 
                 // Upload files in parallel
                 const uploadPromises = validAttachments.map(async (attachment) => {
@@ -166,6 +168,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 });
 
                 const fileIds = await Promise.all(uploadPromises);
+                openaiUploadTimeMs = Date.now() - uploadStartTime;
                 
                 // Add file references to the message content
                 fileIds.forEach(fileId => {
@@ -246,6 +249,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 tokensInput: json.usage?.input_tokens,
                 tokensOutput: json.usage?.output_tokens,
                 aiResponseTimeMs,
+                openaiUploadTimeMs,
                 openaiResponseId: json.id,
             };
 

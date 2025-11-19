@@ -1,6 +1,6 @@
 import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
 import { PostmarkInboundMessage, AiRequest, EmailReply } from "shared/types";
-import { hasImages, flattenHtml, appendAttachments } from "./utils/html";
+import { hasImages, flattenHtml, appendAttachments, calculateCost } from "./utils/index";
 
 import type MailerService from "../../mailer/src/index";
 import type AiService from "../../ai/src/index";
@@ -122,10 +122,12 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     ).run();
 
     // 2. Handle Attachments (New Feature)
+    let attachmentTimeMs = 0;
     if (postmarkData.Attachments && postmarkData.Attachments.length > 0) {
       for (const attachment of postmarkData.Attachments) {
         try {
           const uploadResult = await env.ATTACHMENTS.uploadAttachment(attachment.Name, attachment.Content, attachment.ContentType);
+          if (uploadResult.uploadTimeMs) attachmentTimeMs += uploadResult.uploadTimeMs;
 
           await env.DB.prepare(`
             INSERT INTO attachments (message_id, filename, mime, size_bytes, r2_key)
@@ -164,7 +166,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // 4. Get System Prompt and Settings
     // Hierarchy: Email-specific prompt > Default project settings > Hardcoded fallback
     const emailPromptResult = await env.DB.prepare("SELECT system_prompt FROM email_prompts WHERE email_address = ? LIMIT 1").bind(rallyEmailAddress).first();
-    const defaultSettings = await env.DB.prepare("SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1").first<{ system_prompt: string, model: string, reasoning_effort: string, text_verbosity: string, max_output_tokens: number }>();
+    const defaultSettings = await env.DB.prepare("SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default' LIMIT 1").first<{ system_prompt: string, model: string, reasoning_effort: string, text_verbosity: string, max_output_tokens: number, cost_input_per_1m: number, cost_output_per_1m: number }>();
     
     const systemPrompt = (emailPromptResult?.system_prompt as string) || defaultSettings?.system_prompt;
 
@@ -211,17 +213,44 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 
     // 6. Send Reply via Mailer
     let sentAt: string | null = null;
+    let mailerTimeMs: number | null = null;
     if (aiResponse.reply) {
       const replyToAddress = extractRallyEmailAddress(postmarkData);
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
+      // Calculate costs and timing for footer
+      const aiTime = aiResponse.aiResponseTimeMs || 0;
+      const openaiUploadTime = aiResponse.openaiUploadTimeMs || 0;
+      const totalTimeSoFar = Date.now() - processingStartTime;
+      const ingestTime = Math.max(0, totalTimeSoFar - aiTime - attachmentTimeMs - openaiUploadTime); // Approximate ingest time
+      
+      const inputTokens = aiResponse.tokensInput || 0;
+      const outputTokens = aiResponse.tokensOutput || 0;
+      const cost = calculateCost(
+        inputTokens, 
+        outputTokens, 
+        defaultSettings?.cost_input_per_1m ?? 2.50, 
+        defaultSettings?.cost_output_per_1m ?? 10.00
+      );
+      
+      const footer = `
+<br><br>
+<hr>
+<p style="font-size: 12px; color: #888;">
+  <strong>Rally Processing:</strong> Ingest: ${ingestTime}ms | Attachments (R2): ${attachmentTimeMs}ms | OpenAI Upload: ${openaiUploadTime}ms | AI: ${aiTime}ms | Total: ${totalTimeSoFar}ms<br>
+  <strong>OpenAI Cost:</strong> Input: ${inputTokens} | Output: ${outputTokens} | Total: $${cost.toFixed(4)}
+</p>
+`;
+      
+      const textFooter = `\n\n---\nRally Processing: Ingest: ${ingestTime}ms | Attachments (R2): ${attachmentTimeMs}ms | OpenAI Upload: ${openaiUploadTime}ms | AI: ${aiTime}ms | Total: ${totalTimeSoFar}ms\nOpenAI Cost: Input: ${inputTokens} | Output: ${outputTokens} | Total: $${cost.toFixed(4)}`;
+
       const emailReply: EmailReply = {
         from: replyToAddress, // Use the Rally email address that received the original message
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
-        textBody: aiResponse.reply,
-        htmlBody: aiResponse.replyHtml || aiResponse.reply.replace(/\n/g, '<br>'),
+        textBody: aiResponse.reply + textFooter,
+        htmlBody: (aiResponse.replyHtml || aiResponse.reply.replace(/\n/g, '<br>')) + footer,
         replyTo: replyToAddress,
         inReplyTo: postmarkData.MessageID,
         references: referencesValue,
@@ -231,6 +260,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       const sendResult = await env.MAILER.sendEmail(emailReply);
       if (sendResult.success) {
         sentAt = sendResult.sentAt || new Date().toISOString();
+        mailerTimeMs = sendResult.sendTimeMs || null;
       }
     }
 
@@ -239,11 +269,13 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     await env.DB.prepare(`
       UPDATE messages
       SET llm_summary = ?, llm_reply = ?, tokens_input = ?, tokens_output = ?, 
-      processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?
+      processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?,
+      attachment_time_ms = ?, mailer_time_ms = ?, ingest_time_ms = ?
       WHERE id = ?
     `).bind(
       aiResponse.summary, aiResponse.reply, aiResponse.tokensInput || null, aiResponse.tokensOutput || null,
       processingTimeMs, aiResponse.aiResponseTimeMs || null, sentAt, aiResponse.openaiResponseId || null,
+      attachmentTimeMs, mailerTimeMs, Math.max(0, processingTimeMs - (aiResponse.aiResponseTimeMs || 0) - attachmentTimeMs - (aiResponse.openaiUploadTimeMs || 0) - (mailerTimeMs || 0)),
       internalId
     ).run();
 
@@ -339,8 +371,8 @@ async function getSettings(env: Env) {
 
 async function updateSettings(request: Request, env: Env) {
   const data = await request.json() as any;
-  await env.DB.prepare("UPDATE project_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ? WHERE project_slug = 'default'")
-    .bind(data.system_prompt, data.model, data.reasoning_effort, data.text_verbosity, data.max_output_tokens).run();
+  await env.DB.prepare("UPDATE project_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ?, cost_input_per_1m = ?, cost_output_per_1m = ? WHERE project_slug = 'default'")
+    .bind(data.system_prompt, data.model, data.reasoning_effort, data.text_verbosity, data.max_output_tokens, data.cost_input_per_1m, data.cost_output_per_1m).run();
   return new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } });
 }
 

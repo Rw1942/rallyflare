@@ -11,8 +11,9 @@ export default class AttachmentsService extends WorkerEntrypoint<Env> {
      * @param contentBase64 The base64 encoded content
      * @param contentType The MIME type
      */
-    async uploadAttachment(filename: string, contentBase64: string, contentType: string): Promise<{ key: string; size: number; url?: string }> {
+    async uploadAttachment(filename: string, contentBase64: string, contentType: string): Promise<{ key: string; size: number; url?: string; uploadTimeMs: number }> {
         console.log("Attachments: Uploading", filename);
+        const startTime = Date.now();
 
         try {
             // Decode base64
@@ -31,10 +32,12 @@ export default class AttachmentsService extends WorkerEntrypoint<Env> {
             });
 
             console.log("Attachments: Uploaded", key);
+            const uploadTimeMs = Date.now() - startTime;
 
             return {
                 key,
                 size: bytes.length,
+                uploadTimeMs,
                 // url: `...` // If we had a public domain, we'd return it here
             };
 

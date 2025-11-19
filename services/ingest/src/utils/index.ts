@@ -127,3 +127,12 @@ function formatBytes(bytes: number, decimals = 1) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
+
+// --- Cost Calculation Utils ---
+
+export function calculateCost(inputTokens: number, outputTokens: number, inputRate: number, outputRate: number): number {
+  const inputCost = (inputTokens / 1_000_000) * inputRate;
+  const outputCost = (outputTokens / 1_000_000) * outputRate;
+
+  return inputCost + outputCost;
+}

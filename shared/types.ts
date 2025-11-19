@@ -84,6 +84,7 @@ export interface AiResponse {
     tokensInput?: number;
     tokensOutput?: number;
     aiResponseTimeMs?: number;
+    openaiUploadTimeMs?: number;
     extractedData?: any;
     openaiResponseId?: string;
 }
