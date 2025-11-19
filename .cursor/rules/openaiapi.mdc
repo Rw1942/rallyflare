@@ -1,283 +1,289 @@
 ---
-description: When using the OpenAI API
+description: When using the OpenAI API (REST, for Cloudflare Workers)
 alwaysApply: false
 ---
 
+# GPT-5.1 Developer Guide (REST Only)
 
-# Rally x GPT-5.1: Developer Guide (TypeScript, Responses API, Threaded)
+Cloudflare Workers • TypeScript • D1 • R2
 
-This is the minimal, practical guide for wiring GPT-5.1 into Rally using the **Responses API** with **TypeScript only**. Optimized for:
+---
 
-* Email-style threaded conversations
-* Predictable latency + cost
-* Easy migration from Chat Completions
+## 1. Authentication (Workers-native)
 
-All examples assume:
+Always use the Worker’s env for secure API key injection:
 
 ```ts
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
+const headers = (env: Env) => ({
+  "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
 });
 ```
 
 ---
 
-## 1. Model basics for Rally
+## 2. Basic Chat Completion (Non-Streaming)
 
-Recommended defaults:
+> Clean REST, no SDK required. Rally usage: internal helpers, summaries, draft replies, etc.
 
-* **Primary:** `gpt5.1`
-* **Cheaper / high-volume:** `gpt5.1-mini`
-* **Very simple classification / routing:** `gpt5.1-nano`
+```ts
+export async function chat(env: Env, prompt: string) {
+  const body = {
+    model: "gpt-5.1",
+    input: [{ role: "user", content: prompt }]
+  };
 
-Key GPT-5.1 specifics: ([OpenAI Platform][1])
+  const resp = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      ...headers(env),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
 
-* Use `reasoning.effort` instead of `temperature` / `top_p`.
-* Use `text.verbosity` to control answer length.
-* Use `max_output_tokens` to cap cost.
-* Requests with `temperature`, `top_p`, or `logprobs` will error.
+  const json = await resp.json();
+  return json.output_text;
+}
+
+// Usage example:
+const answer = await chat(env, "Explain the difference between R2 and D1.");
+```
 
 ---
 
-## 2. Simple single-turn call
+## 3. Streaming Responses (Token streaming via SSE)
 
-Baseline POC: internal helper, summaries, drafts.
+> For fast UX or R2 file processing, Workers streams tokens beautifully.
 
 ```ts
-const response = await client.responses.create({
-  model: "gpt5.1",
-  input: "Summarize this thread in 3 bullet points for an internal notes panel.",
-  reasoning: { effort: "low" },
-  text: { verbosity: "low" },
-  max_output_tokens: 300,
-});
+export async function streamChat(env: Env, prompt: string) {
+  const resp = await fetch("https://api.openai.com/v1/responses/stream", {
+    method: "POST",
+    headers: {
+      ...headers(env),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5.1",
+      input: [{ role: "user", content: prompt }]
+    }),
+  });
 
-// Text helper:
-const output =
-  response.output_text ??
-  response.output?.map(p => p.content?.map(c => c.text || "").join("")).join("") ??
-  "";
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value);
+    text += chunk;
+    // Optionally: yield chunk to the client stream
+  }
+  return text;
+}
 ```
-
-Use cases in Rally:
-
-* TL;DR of an approval thread
-* Suggested reply to requester
-* Classifying thread type / urgency (using concise prompts + low verbosity)
 
 ---
 
-## 3. Fast vs deep reasoning presets
+## 4. Attachments: Files, PDFs, Images
 
-Use these presets instead of tuning temperatures.
+### 4A. Multipart Helper for Workers
 
-### Fast, low-latency (routing, labels, short answers)
-
-````ts
-const fast = await client.responses.create({
-  model: "gpt5.1-mini",
-  input: "Classify this email into one of: BUDGET_REQUEST, HIRING_REQUEST, VENDOR, OTHER: ```...email body...```",
-  reasoning: { effort: "minimal" },
-  text: { verbosity: "low" },
-  max_output_tokens: 150,
-});
-````
-
-### Deep, careful (policy-heavy, risky, multi-step)
+> Workers can build multipart bodies directly—no NPM deps required.
 
 ```ts
-const deep = await client.responses.create({
-  model: "gpt5.1",
-  input: `
-You are Rally's policy engine.
-Given this email thread, determine:
-1) Is all required approver coverage present?
-2) Are there conflicting instructions?
-3) Return a short JSON decision object.
+export function buildMultipart(parts: Record<string, any>) {
+  const boundary = "----cf-" + crypto.randomUUID();
+  const chunks: (string | File)[] = [];
 
-Thread:
-"""...thread text..."""
-  `.trim(),
-  reasoning: { effort: "high" },
-  text: { verbosity: "medium" },
-  max_output_tokens: 800,
-});
+  for (const [name, value] of Object.entries(parts)) {
+    chunks.push(`--${boundary}`);
+    if (value instanceof File) {
+      chunks.push(
+        `Content-Disposition: form-data; name="${name}"; filename="${value.name}"`,
+        `Content-Type: ${value.type || "application/octet-stream"}`,
+        "",
+        value
+      );
+    } else {
+      chunks.push(
+        `Content-Disposition: form-data; name="${name}"`,
+        "",
+        typeof value === "string" ? value : JSON.stringify(value)
+      );
+    }
+  }
+
+  chunks.push(`--${boundary}--`, "");
+  return {
+    body: new Blob(chunks),
+    boundary
+  };
+}
 ```
 
-For most Rally flows:
-
-* Start with `minimal` / `low` reasoning.
-* Only bump to `medium`/`high` for important workflows that must be right.
-
-Docs background on reasoning, Responses API benefits. ([OpenAI Platform][2])
-
----
-
-## 4. Threaded conversations (core for Rally)
-
-Goal: each Rally “request” (email chain) has stable context across turns without resending everything.
-
-Two simple patterns:
-
-### Pattern A: Store `previous_response_id` per Rally thread
-
-1. When you call `responses.create`, persist:
-
-   * `response.id`
-   * `rallyThreadId`
-2. On the next call for that Rally thread, send `previous_response_id`.
-
-**First message in a Rally thread:**
+### 4B. R2 File to OpenAI
 
 ```ts
-const first = await client.responses.create({
-  model: "gpt5.1",
-  input: `
-You are Rally AI.
-Summarize and normalize this email chain into a structured internal note.
-
-Thread:
-"""...email chain text..."""
-  `.trim(),
-  reasoning: { effort: "low" },
-  text: { verbosity: "low" },
-  max_output_tokens: 400,
+// Step 1: Load file from R2
+const r2Obj = await env.BUCKET.get(key);
+const arrayBuffer = await r2Obj.arrayBuffer();
+const file = new File([arrayBuffer], key, {
+  type: r2Obj.httpMetadata.contentType || "application/octet-stream"
 });
 
-// Store mapping: rallyThreadId -> first.id
-```
-
-**Follow-up within the same Rally thread:**
-
-```ts
-const followup = await client.responses.create({
-  model: "gpt5.1",
-  input: `
-Update the prior summary given this new reply.
-Return only the updated structured summary.
-New email:
-"""...latest email..."""
-  `.trim(),
-  previous_response_id: first.id, // loaded from storage
-  reasoning: { effort: "low" },
-  text: { verbosity: "low" },
-  max_output_tokens: 400,
+// Step 2: Build multipart payload
+const { body, boundary } = buildMultipart({
+  model: "gpt-5.1",
+  input: JSON.stringify([{ role: "user", content: "Summarize this file." }]),
+  file
 });
-```
 
-The Responses API reuses prior reasoning/context through `previous_response_id`, so you:
-
-* Avoid re-sending the full history every time.
-* Get better performance + lower token usage. ([OpenAI Cookbook][3])
-
-### Pattern B: Stateless, resend condensed history
-
-If you don’t want to store response IDs yet (very early POC):
-
-```ts
-const history = [
-  "[system] You are Rally AI. Maintain a single source of truth for this request.",
-  "[user] ...original request...",
-  "[assistant] ...your last summary...",
-  "[user] ...new email...",
-].join("\n\n");
-
-const res = await client.responses.create({
-  model: "gpt5.1",
-  input: history + "\n\nUpdate the summary only.",
-  reasoning: { effort: "minimal" },
-  text: { verbosity: "low" },
-  max_output_tokens: 400,
-});
-```
-
-Use Pattern A as soon as you add persistence; it’s cheaper and scales better.
-
----
-
-## 5. Migrating from Chat Completions (for Rally)
-
-If you already use:
-
-```ts
-openai.chat.completions.create({
-  model: "gpt-4.1",
-  messages: [...],
-  temperature: 0.2,
-});
-```
-
-Switch to:
-
-```ts
-const res = await client.responses.create({
-  model: "gpt5.1-mini",
-  input: `
-You are Rally AI.
-${/* flatten your old messages into one structured input string */""}
-[user]: ...latest email content...
-  `.trim(),
-  reasoning: { effort: "minimal" },     // instead of temperature/top_p
-  text: { verbosity: "low" },
-  max_output_tokens: 400,
-});
-```
-
-Key changes:
-
-* Use `input` (string or array) instead of `messages`.
-* Drop `temperature`, `top_p`, `logprobs`.
-* Use `previous_response_id` for multi-turn instead of pushing a long `messages` array. ([OpenAI Platform][4])
-
----
-
-## 6. Recommended Rally presets
-
-You can hard-code these in config for your POC:
-
-```ts
-export const RALLY_GPT5_DEFAULTS = {
-  summary: {
-    model: "gpt5.1-mini",
-    reasoning: { effort: "minimal" as const },
-    text: { verbosity: "low" as const },
-    max_output_tokens: 300,
+// Step 3: Send to OpenAI
+const resp = await fetch("https://api.openai.com/v1/responses", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+    "Content-Type": `multipart/form-data; boundary=${boundary}`
   },
-  classification: {
-    model: "gpt5.1-nano",
-    reasoning: { effort: "minimal" as const },
-    text: { verbosity: "low" as const },
-    max_output_tokens: 120,
+  body
+});
+
+const json = await resp.json();
+const text = json.output_text;
+```
+
+---
+
+## 5. Handling Direct User Uploads
+
+> Got a POST with a file? Works the same.
+
+```ts
+const form = await request.formData();
+const file = form.get("file") as File;
+
+const { body, boundary } = buildMultipart({
+  model: "gpt-5.1",
+  input: JSON.stringify([{ role: "user", content: "Extract all dates from this document." }]),
+  file
+});
+
+const resp = await fetch("https://api.openai.com/v1/responses", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+    "Content-Type": `multipart/form-data; boundary=${boundary}`
   },
-  criticalDecision: {
-    model: "gpt5.1",
-    reasoning: { effort: "medium" as const },
-    text: { verbosity: "medium" as const },
-    max_output_tokens: 800,
+  body
+});
+
+const json = await resp.json();
+const text = json.output_text;
+```
+
+---
+
+## 6. Multi-Turn Chat (D1 + GPT-5.1)
+
+> Store each chat round in D1; replay ordered history to the model.
+
+**Schema:**
+
+```sql
+CREATE TABLE chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT,
+  role TEXT,
+  content TEXT,
+  ts INTEGER
+);
+```
+
+**Load & Send:**
+
+```ts
+const rows = await env.DB.prepare(
+  "SELECT role, content FROM chat_messages WHERE session_id=? ORDER BY id"
+).bind(sessionId).all();
+
+const resp = await fetch("https://api.openai.com/v1/responses", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+    "Content-Type": "application/json"
   },
+  body: JSON.stringify({
+    model: "gpt-5.1",
+    input: rows.map(m => ({
+      role: m.role,
+      content: m.content
+    }))
+  })
+});
+
+const out = await resp.json();
+const outputText = out.output_text;
+
+await env.DB.prepare(
+  "INSERT INTO chat_messages (session_id, role, content, ts) VALUES (?, ?, ?, ?)"
+).bind(sessionId, "assistant", outputText, Date.now()).run();
+```
+
+---
+
+## 7. Best Practices for Rally
+
+1. **REST everywhere:** Simpler and snappier.
+2. **Stream if possible:** Workers stream natively.
+3. **R2 for all binary:** D1 is for metadata, not blobs!
+4. **Shorten context:** Summarize threads—don’t replay deep history.
+5. **File size checks:** Workers have blob limits; check before send.
+
+---
+
+## 8. Full Example: Worker Endpoint with Optional File
+
+```ts
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  const form = await request.formData();
+  const prompt = form.get("prompt") as string;
+  const file = form.get("file") as File | null;
+
+  let payload: any = {
+    model: "gpt-5.1",
+    input: JSON.stringify([{ role: "user", content: prompt }])
+  };
+
+  let headers: Record<string, string> = {
+    "Authorization": `Bearer ${env.OPENAI_API_KEY}`
+  };
+
+  let body;
+
+  if (file) {
+    const { body: multipart, boundary } = buildMultipart({ ...payload, file });
+    body = multipart;
+    headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
+  } else {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(payload);
+  }
+
+  const resp = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers,
+    body
+  });
+
+  const out = await resp.json();
+  return new Response(out.output_text, { status: 200 });
 };
 ```
 
-Use these presets when calling `responses.create` to keep behavior consistent across services.
-
-
 ---
 
-## 7. Sending Files
+**Note:** Use REST endpoints (`/v1/responses`, `/v1/responses/stream`) for all GPT-5.1 work in Rally on Workers—avoid the Node SDK for best cold starts and less config.
 
-To upload files (e.g., for PDF parsing or context), use `client.files.create`.
-
-```ts
-import fs from "fs";
-
-const file = await client.files.create({
-  file: fs.createReadStream("document.pdf"),
-  purpose: "assistants",
-});
-
-console.log(file.id);
-```
-
-You can then reference this file ID in other API calls that support file attachments.
+---

@@ -4,3 +4,4 @@ compatibility_date = "2025-10-08"
 
 [vars]
 # OPENAI_API_KEY will be set via secrets
+
