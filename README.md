@@ -292,29 +292,125 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 - `temperature` - Temperature setting used
 - `text_verbosity` - Text verbosity level used
 
+## Configuration & Settings
+
+### Settings Cascade Architecture
+
+Rally uses a **clean three-tier settings hierarchy** for maximum flexibility:
+
+```
+Email-Specific Settings → Project Defaults → Hardcoded Fallbacks
+    (per address)             (global)           (code)
+```
+
+**How it works:**
+1. Rally checks if the receiving email address has custom settings in `email_settings` table
+2. For any NULL fields, it falls back to `project_settings` (global defaults)
+3. If no project settings exist, uses hardcoded defaults
+
+**Configurable Parameters:**
+- `system_prompt` - AI personality and behavior instructions
+- `model` - Which GPT model to use (`gpt-5.1`, `gpt-5.1-mini`)
+- `reasoning_effort` - Thinking depth (`minimal`, `low`, `medium`, `high`)
+- `text_verbosity` - Response length (`low`, `medium`, `high`)
+- `max_output_tokens` - Hard limit on response length
+- `temperature` - Randomness level (0-2, lower = more focused)
+- `top_p` - Nucleus sampling (0-1, alternative to temperature)
+
+**Example Use Case:**
+```
+Global Settings (project_settings):
+  temperature: 1.0
+  model: gpt-5.1
+  reasoning_effort: medium
+
+support@company.com (email_settings):
+  temperature: 0.3        ← Override (more consistent)
+  text_verbosity: high    ← Override (detailed answers)
+  model: NULL             ← Use global default (gpt-5.1)
+
+Result: Support emails are consistent and detailed,
+        while all other emails use standard settings.
+```
+
+**Implementation:** See `services/ingest/src/utils/settingsMerge.ts` for the clean merge logic.
+
 ## Admin Dashboard
 
 Email2ChatGPT includes a beautiful, modern dashboard accessible at the root URL of your deployed Worker. It's designed to feel calm and uncluttered.
 
 **Features:**
 - **Activity View**: Statistics overview, incoming/outgoing messages, performance badges.
-- **Settings Page**: Configure default AI system prompt.
-- **Email Prompts Page**: Manage AI behavior for specific email addresses.
+- **Settings Page**: Configure global AI defaults (system prompt, model, temperature, etc.)
+- **Email-Specific Settings**: Override any parameter for specific email addresses
 - **Users Page**: View all contacts, compliance indicators, and message counts.
 
 ## Development
 
-Run locally with Wrangler:
+### Local Development
+
+Run the ingest service locally:
 
 ```bash
+cd services/ingest
 npx wrangler dev
 ```
 
-View logs:
+View live production logs:
 
 ```bash
 npx wrangler tail
 ```
+
+### Database Operations During Development
+
+**Query the Database:**
+```bash
+# Quick query
+npx wrangler d1 execute rally-database --remote --command "SELECT * FROM messages ORDER BY received_at DESC LIMIT 5"
+
+# Check table schema
+npx wrangler d1 execute rally-database --remote --command "PRAGMA table_info(messages);"
+
+# Count records
+npx wrangler d1 execute rally-database --remote --command "SELECT COUNT(*) as total FROM messages WHERE direction='inbound'"
+```
+
+**Apply Migrations:**
+```bash
+# Apply a migration file
+npx wrangler d1 execute rally-database --remote --file=migrations/0020_refactor_to_email_settings.sql
+
+# List applied migrations
+npx wrangler d1 migrations list rally-database --remote
+```
+
+**Inspect Settings:**
+```bash
+# View global settings
+npx wrangler d1 execute rally-database --remote --command "SELECT * FROM project_settings WHERE project_slug='default'"
+
+# View email-specific settings
+npx wrangler d1 execute rally-database --remote --command "SELECT * FROM email_settings"
+```
+
+**Common Development Tasks:**
+```bash
+# Add a test email setting
+npx wrangler d1 execute rally-database --remote --command "INSERT INTO email_settings (email_address, system_prompt, temperature) VALUES ('test@company.com', 'You are a test assistant', 0.5)"
+
+# Update global temperature
+npx wrangler d1 execute rally-database --remote --command "UPDATE project_settings SET temperature=0.8 WHERE project_slug='default'"
+
+# Delete all test messages
+npx wrangler d1 execute rally-database --remote --command "DELETE FROM messages WHERE from_email LIKE '%test%'"
+```
+
+**Important Notes:**
+- Use `--remote` for production database
+- Omit `--remote` to work with local `.wrangler/state/` database
+- Always test migrations on local first, then apply to remote
+- D1 binding is in `services/ingest/wrangler.toml`, migrations in root `migrations/`
 
 ## Troubleshooting & Notes
 
@@ -322,13 +418,19 @@ npx wrangler tail
 
 Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
 - **Model**: `gpt-5.1` or `gpt-5.1-mini`
-- **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`
+- **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`, `temperature`, `top_p`
 - **NOT using**: Chat Completions API (`/v1/chat/completions`)
 
-Configure in Settings page:
-- Reasoning effort: minimal, low, medium, high
-- Text verbosity: low, medium, high
-- Cost per 1M tokens (auto-populated based on model selection)
+**Available in Settings:**
+- **Model** - GPT-5.1 (with reasoning) or GPT-5.1 Mini (faster, cheaper)
+- **Reasoning effort** - minimal, low, medium, high (controls thinking depth)
+- **Text verbosity** - low, medium, high (controls response length)
+- **Max output tokens** - Hard cap on response length (50-128000)
+- **Temperature** - Randomness (0-2, default 1.0, lower = more focused)
+- **Top P** - Nucleus sampling (0-1, default 1.0, alternative to temperature)
+- **Cost settings** - Input/output cost per 1M tokens for tracking
+
+**OpenAI Best Practice:** Modify either `temperature` OR `top_p`, not both.
 
 ### Email Formatting Architecture
 

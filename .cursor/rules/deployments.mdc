@@ -14,6 +14,21 @@ RallyFlare uses a **microservices architecture** with separate Workers:
 - `rally-mailer` - Postmark email sending
 - `rally-attachments` - R2 file storage
 
+## Settings Cascade Architecture
+
+Rally uses a **three-tier settings hierarchy**:
+```
+email_settings (per address) → project_settings (global) → hardcoded fallbacks
+```
+
+**Tables:**
+- `project_settings` - Global defaults (system_prompt, model, temperature, reasoning_effort, etc.)
+- `email_settings` - Per-email overrides (any NULL field uses global default)
+
+**Configurable parameters:** `system_prompt`, `model`, `reasoning_effort`, `text_verbosity`, `max_output_tokens`, `temperature`, `top_p`
+
+**Implementation:** `services/ingest/src/utils/settingsMerge.ts` handles the merge logic cleanly.
+
 ## Quick Deployment (Microservices)
 
 ```bash
@@ -68,11 +83,26 @@ npx wrangler tail                   # View live logs from deployed Worker
 # Query remote database
 npx wrangler d1 execute rally-database --remote --command "SELECT * FROM messages LIMIT 5"
 
-# List migrations
-npx wrangler d1 migrations list rally-database --remote
+# Apply migration from file
+npx wrangler d1 execute rally-database --remote --file=migrations/0020_refactor_to_email_settings.sql
 
-# Apply migrations to production
-npx wrangler d1 migrations apply rally-database --remote
+# List migrations (doesn't work reliably with our setup - use manual tracking)
+npx wrangler d1 migrations list rally-database --remote
+```
+
+**Deployment Commands:**
+```bash
+# Deploy from each service directory
+cd services/ingest && wrangler deploy
+cd services/ai && wrangler deploy
+cd services/mailer && wrangler deploy
+cd services/attachments && wrangler deploy
+
+# Or deploy all from root with explicit paths (faster)
+wrangler deploy --config services/ingest/wrangler.toml && \
+wrangler deploy --config services/ai/wrangler.toml && \
+wrangler deploy --config services/mailer/wrangler.toml && \
+wrangler deploy --config services/attachments/wrangler.toml
 ```
 
 **Secrets Management:**
@@ -121,6 +151,94 @@ After deploying:
 - `.dev.vars` - Local secrets (gitignored, never commit)
 - `migrations/*.sql` - Database schema changes
 
+## Database Operations for Development
+
+### Querying Data
+
+```bash
+# View recent messages
+npx wrangler d1 execute rally-database --remote --command "SELECT id, from_email, subject, received_at FROM messages ORDER BY received_at DESC LIMIT 10"
+
+# Check table schema
+npx wrangler d1 execute rally-database --remote --command "PRAGMA table_info(messages);"
+npx wrangler d1 execute rally-database --remote --command "PRAGMA table_info(email_settings);"
+
+# Count inbound vs outbound
+npx wrangler d1 execute rally-database --remote --command "SELECT direction, COUNT(*) as count FROM messages GROUP BY direction"
+
+# View email-specific settings
+npx wrangler d1 execute rally-database --remote --command "SELECT email_address, model, temperature, reasoning_effort FROM email_settings"
+
+# View global settings
+npx wrangler d1 execute rally-database --remote --command "SELECT * FROM project_settings WHERE project_slug='default'"
+
+# Check performance metrics
+npx wrangler d1 execute rally-database --remote --command "SELECT AVG(processing_time_ms) as avg_ms, AVG(cost_dollars) as avg_cost FROM messages WHERE direction='inbound'"
+```
+
+### Modifying Data
+
+```bash
+# Add email-specific settings
+npx wrangler d1 execute rally-database --remote --command "INSERT INTO email_settings (email_address, system_prompt, temperature) VALUES ('support@company.com', 'You are a helpful support assistant', 0.3)"
+
+# Update global temperature
+npx wrangler d1 execute rally-database --remote --command "UPDATE project_settings SET temperature=0.8, top_p=1.0 WHERE project_slug='default'"
+
+# Clear specific setting override (NULL = use global default)
+npx wrangler d1 execute rally-database --remote --command "UPDATE email_settings SET temperature=NULL WHERE email_address='support@company.com'"
+
+# Delete test messages
+npx wrangler d1 execute rally-database --remote --command "DELETE FROM messages WHERE from_email LIKE '%test%'"
+
+# Delete an email setting
+npx wrangler d1 execute rally-database --remote --command "DELETE FROM email_settings WHERE email_address='old@company.com'"
+```
+
+### Applying Migrations
+
+```bash
+# Check what migrations exist
+ls -la migrations/
+
+# Apply a specific migration
+npx wrangler d1 execute rally-database --remote --file=migrations/0020_refactor_to_email_settings.sql
+
+# If you get "duplicate column" error, the migration was already applied - that's okay!
+# Our manual migration process means we track which are applied by checking the schema directly.
+
+# Verify migration applied successfully
+npx wrangler d1 execute rally-database --remote --command "PRAGMA table_info(email_settings);"
+```
+
+### Local vs Remote Database
+
+```bash
+# Work with LOCAL database (for testing)
+npx wrangler d1 execute rally-database --command "SELECT COUNT(*) FROM messages"
+
+# Work with REMOTE/PRODUCTION database (requires --remote flag)
+npx wrangler d1 execute rally-database --remote --command "SELECT COUNT(*) FROM messages"
+
+# Local database lives at: .wrangler/state/v3/d1/miniflare-D1DatabaseObject/*.sqlite
+```
+
+### Useful Development Queries
+
+```bash
+# Find messages with high AI costs
+npx wrangler d1 execute rally-database --remote --command "SELECT subject, cost_dollars, tokens_input, tokens_output FROM messages WHERE cost_dollars > 0.01 ORDER BY cost_dollars DESC LIMIT 10"
+
+# Check cached token efficiency
+npx wrangler d1 execute rally-database --remote --command "SELECT AVG(cached_tokens) as avg_cached, AVG(tokens_input) as avg_input FROM messages WHERE cached_tokens > 0"
+
+# View reasoning token usage
+npx wrangler d1 execute rally-database --remote --command "SELECT subject, reasoning_tokens, tokens_output FROM messages WHERE reasoning_tokens IS NOT NULL ORDER BY reasoning_tokens DESC LIMIT 10"
+
+# List all configured email addresses
+npx wrangler d1 execute rally-database --remote --command "SELECT email_address FROM email_settings UNION SELECT DISTINCT email_address FROM messages WHERE direction='inbound' ORDER BY email_address"
+```
+
 ## When Things Break
 
 ```bash
@@ -134,8 +252,19 @@ npx wrangler d1 execute rally-database --remote --command "SELECT COUNT(*) FROM 
 npx wrangler secret list
 
 # Test locally before deploying
-npx wrangler dev
+cd services/ingest && npx wrangler dev
+
+# Check current database schema
+npx wrangler d1 execute rally-database --remote --command "SELECT name FROM sqlite_master WHERE type='table'"
 ```
+
+## Pro Tips
+
+1. **Save frequently-used queries** as shell aliases or scripts
+2. **Use `--json` flag** for programmatic access: `npx wrangler d1 execute rally-database --remote --json --command "SELECT * FROM messages LIMIT 1"`
+3. **Test migrations locally first** before applying to remote
+4. **Keep a migration log** in comments or a separate file tracking which migrations have been applied
+5. **Backup before big changes**: Export data with queries, save results
 
 ---
 
