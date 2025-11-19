@@ -2,7 +2,7 @@
 
 ## Overview
 
-Rally receives inbound emails via Postmark webhooks. When someone sends an email to your Rally address (e.g., `chat@email2chatgpt.com`), Postmark will forward the email data to your Cloudflare Worker.
+Email2ChatGPT receives inbound emails via Postmark webhooks. When someone sends an email to your Email2ChatGPT address (e.g., `chat@email2chatgpt.com`), Postmark will forward the email data to your Cloudflare Worker.
 
 ## Setup Steps
 
@@ -93,7 +93,7 @@ Postmark sends a JSON payload to `/postmark/inbound` with this structure:
     "Email": "john@example.com",
     "Name": "John Doe"
   },
-  "To": "requests@rallycollab.com",
+  "To": "chat@email2chatgpt.com",
   "Subject": "Project Update",
   "TextBody": "Here's the update...",
   "HtmlBody": "<p>Here's the update...</p>",
@@ -103,9 +103,9 @@ Postmark sends a JSON payload to `/postmark/inbound` with this structure:
 }
 ```
 
-## What Rally Does
+## What Email2ChatGPT Does
 
-When Rally receives the webhook:
+When Email2ChatGPT receives the webhook:
 
 1. **Stores** the email in D1 database
 2. **Extracts** participants (To, Cc, etc.)
@@ -170,7 +170,7 @@ These should match what's in your `.dev.vars` for local development.
 
 ### Webhook Security (HTTP Basic Authentication)
 
-To secure your Postmark inbound webhook, Rally now uses HTTP Basic Authentication. This means that when Postmark sends a webhook to your Worker, it will include an `Authorization` header with a username and password.
+To secure your Postmark inbound webhook, Email2ChatGPT now uses HTTP Basic Authentication. This means that when Postmark sends a webhook to your Worker, it will include an `Authorization` header with a username and password.
 
 **You must configure your Postmark Inbound Stream with the following:**
 
@@ -194,4 +194,3 @@ To secure your Postmark inbound webhook, Rally now uses HTTP Basic Authenticatio
 - Add Cloudflare Access for authentication
 - Implement R2 attachment storage
 - Add manual re-process/re-send buttons
-

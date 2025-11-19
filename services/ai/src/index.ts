@@ -30,10 +30,11 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 emailContent = emailContent.substring(0, MAX_CONTENT_LENGTH) + "\n\n[... truncated ...]";
             }
 
-            let prompt = `${request.systemPrompt}\n\nConversation History:${historyStr}\n\nCurrent Email:\nFrom: ${request.postmarkData.FromFull?.Name} <${request.postmarkData.FromFull?.Email}>\nSubject: ${request.postmarkData.Subject}\n\n${emailContent}`;
+            // Construct the user message content with context
+            let userContent = `Conversation History:${historyStr}\n\nCurrent Email:\nFrom: ${request.postmarkData.FromFull?.Name} <${request.postmarkData.FromFull?.Email}>\nSubject: ${request.postmarkData.Subject}\n\n${emailContent}`;
 
             if (request.requestContext) {
-                prompt += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
+                userContent += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
             }
 
             // 2. Prepare Request Body (JSON or Multipart)
@@ -42,9 +43,15 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`
             };
 
+            // Use 'system' role for the system prompt to ensure clear separation of instructions
+            const messages = [
+                { role: "system", content: request.systemPrompt },
+                { role: "user", content: userContent }
+            ];
+
             const payload: any = {
                 model: request.model,
-                input: [{ role: "user", content: prompt }],
+                input: messages,
                 max_output_tokens: request.maxOutputTokens,
             };
 

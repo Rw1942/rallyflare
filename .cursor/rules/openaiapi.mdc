@@ -18,7 +18,7 @@ const headers = (env: Env) => ({
 
 ## 2. Basic Chat Completion (Non-Streaming)
 
-> Clean REST, no SDK required. Rally usage: internal helpers, summaries, draft replies, etc.
+> Clean REST, no SDK required. Email2ChatGPT usage: internal helpers, summaries, draft replies, etc.
 
 ```ts
 export async function chat(env: Env, prompt: string) {
@@ -247,7 +247,7 @@ await env.DB.prepare(
 
 ---
 
-## 7. Best Practices for Rally
+## 7. Best Practices for Email2ChatGPT
 
 1. **REST everywhere:** Simpler and snappier.
 2. **Stream if possible:** Workers stream natively.
@@ -302,6 +302,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 ---
 
-**Note:** Use REST endpoints (`/v1/responses`, `/v1/responses/stream`) for all GPT-5.1 work in Rally on Workers—avoid the Node SDK for best cold starts and less config.
+**Note:** Use REST endpoints (`/v1/responses`, `/v1/responses/stream`) for all GPT-5.1 work in Email2ChatGPT on Workers—avoid the Node SDK for best cold starts and less config.
 
 ---

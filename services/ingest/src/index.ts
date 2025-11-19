@@ -148,9 +148,35 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     }).filter(Boolean) as any[];
 
     // 4. Get System Prompt and Settings
+    // Hierarchy: Email-specific prompt > Default project settings > Hardcoded fallback
     const emailPromptResult = await env.DB.prepare("SELECT system_prompt FROM email_prompts WHERE email_address = ? LIMIT 1").bind(rallyEmailAddress).first();
     const defaultSettings = await env.DB.prepare("SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1").first<{ system_prompt: string, model: string, reasoning_effort: string, text_verbosity: string, max_output_tokens: number }>();
-    const systemPrompt = (emailPromptResult?.system_prompt as string) || defaultSettings?.system_prompt || "You are Rally.";
+    
+    const systemPrompt = (emailPromptResult?.system_prompt as string) || defaultSettings?.system_prompt;
+
+    if (!systemPrompt) {
+      console.error(`Missing system prompt for ${rallyEmailAddress}`);
+      
+      const replyToAddress = extractRallyEmailAddress(postmarkData);
+      const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
+      const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
+
+      const errorReply: EmailReply = {
+        from: replyToAddress,
+        to: postmarkData.FromFull?.Email || postmarkData.From,
+        subject: `Re: ${postmarkData.Subject}`,
+        textBody: "Rally is currently not configured to handle this request. Please contact the administrator to set up the system prompt.",
+        htmlBody: "<p>Rally is currently not configured to handle this request. Please contact the administrator to set up the system prompt.</p>",
+        replyTo: replyToAddress,
+        inReplyTo: postmarkData.MessageID,
+        references: referencesValue,
+        originalMessageId: internalId
+      };
+
+      await env.MAILER.sendEmail(errorReply);
+
+      return new Response(JSON.stringify({ success: false, error: "Missing system prompt" }), { status: 400 });
+    }
 
     // 5. Call AI Service
     const aiRequest: AiRequest = {
@@ -158,6 +184,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       postmarkData,
       rallyEmailAddress,
       systemPrompt,
+      // Use configured model or fallback to gpt-5.1 (as per project rules)
       model: defaultSettings?.model || "gpt-5.1",
       reasoningEffort: defaultSettings?.reasoning_effort || "medium",
       textVerbosity: defaultSettings?.text_verbosity || "low",

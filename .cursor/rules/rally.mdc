@@ -1,14 +1,14 @@
 ---
 alwaysApply: true
 ---
-**Rally on Cloudflare: Developer Implementation Guide (POC)**
+**Email2ChatGPT on Cloudflare: Developer Implementation Guide (POC)**
 (Practical. Minimal. Fast.)
 
 ---
 
 ### Overview
 
-This document outlines how to build a proof-of-concept of Rally using Cloudflare Workers, D1, and Postmark. The goal is to demonstrate the core workflow:
+This document outlines how to build a proof-of-concept of Email2ChatGPT (formerly Rally) using Cloudflare Workers, D1, and Postmark. The goal is to demonstrate the core workflow:
 
 1. Receive an email (via Postmark inbound webhook).
 2. Parse and store message metadata and participants.
@@ -16,18 +16,18 @@ This document outlines how to build a proof-of-concept of Rally using Cloudflare
 4. Send a reply email via Postmark.
 5. Expose a minimal management console for context configuration and message browsing.
 
-This is not production-grade—just a fast, working prototype that mimics how Rally should feel: instant, invisible, and email-native.
+This is not production-grade—just a fast, working prototype that mimics how Email2ChatGPT should feel: instant, invisible, and email-native.
 
 ---
 
-## Rally UX & App Behavior
+## Email2ChatGPT UX & App Behavior
 
-Think of Rally as “reply-all automation with brains.” Users never log into Rally to use it; they interact through email. The web console exists only for admins.
+Think of Email2ChatGPT as “reply-all automation with brains.” Users never log into Email2ChatGPT to use it; they interact through email. The web console exists only for admins.
 
 * User experience:
 
-  * Someone sends or forwards an email to a Rally address (`requests@rallycollab.com`).
-  * Rally parses the thread and participants instantly.
+  * Someone sends or forwards an email to an Email2ChatGPT address (`chat@email2chatgpt.com`).
+  * Email2ChatGPT parses the thread and participants instantly.
   * The content is summarized, classified, or routed by OpenAI.
   * A structured reply or confirmation is emailed back—still inside the same thread.
   * In the background, everything is logged, searchable, and auditable in D1.
@@ -56,7 +56,7 @@ Think of Rally as “reply-all automation with brains.” Users never log into R
 
 ## Flow Summary
 
-### 1. Inbound Email -> Rally
+### 1. Inbound Email -> Email2ChatGPT
 
 * Postmark receives email, triggers webhook to Worker route `/postmark/inbound`.
 * Worker extracts: From, To, Cc, MessageID, InReplyTo, References, subject, text, HTML, and attachments.
@@ -175,7 +175,7 @@ bucket_name = "rally-attachments"
 
 ## Notes for the Developer
 
-*   Goal: make Rally “feel invisible.” It should handle an inbound email in <2 seconds.
+*   Goal: make Email2ChatGPT “feel invisible.” It should handle an inbound email in <2 seconds.
 *   Database: small tables, no joins beyond basic queries.
 *   No custom auth: gate console behind Cloudflare Access.
 *   Attachments: skip for now unless easy; stub out R2 upload call.
@@ -255,10 +255,10 @@ bucket_name = "rally-attachments"
 *   Email/webhooks: Workers + Queues
 
 ---
-# Rally on Cloudflare: Custom Cursor Rules
+# Email2ChatGPT on Cloudflare: Custom Cursor Rules
 
 ## Project Overview
-This is Rally on Cloudflare, a proof-of-concept email-native automation tool for "reply-all automation with brains." It processes emails invisibly via AI, interacting primarily through email threads. Core flow: Inbound email webhook -> Parse & store in D1 -> AI process with OpenAI -> Optional structured reply -> Minimal admin console for config and browsing.
+This is Email2ChatGPT on Cloudflare, a proof-of-concept email-native automation tool for "reply-all automation with brains." It processes emails invisibly via AI, interacting primarily through email threads. Core flow: Inbound email webhook -> Parse & store in D1 -> AI process with OpenAI -> Optional structured reply -> Minimal admin console for config and browsing.
 
 **Key Goals:**
 - Instant, invisible automation.

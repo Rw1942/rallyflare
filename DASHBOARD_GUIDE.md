@@ -1,19 +1,19 @@
-# Rally Dashboard Guide
+# Email2ChatGPT Dashboard Guide
 
 ## User Story
 
-**As a Rally admin,**  
+**As an Email2ChatGPT admin,**  
 I want to see a clean, peaceful dashboard of all email activity  
-So that I can quickly understand what Rally is handling and ensure everything is working smoothly.
+So that I can quickly understand what Email2ChatGPT is handling and ensure everything is working smoothly.
 
 ### Design Philosophy
 
-The Rally dashboard embodies these principles:
+The Email2ChatGPT dashboard embodies these principles:
 
 - **Calm and Uncluttered** - Like reading a well-organized inbox, not a technical admin panel
 - **Instantly Scannable** - Clear visual hierarchy with color-coded sections
 - **Soft and Inviting** - Gentle gradients, rounded corners, and soft shadows
-- **Trustworthy** - Shows Rally working invisibly in the background
+- **Trustworthy** - Shows Email2ChatGPT working invisibly in the background
 
 ## Features
 
@@ -26,7 +26,7 @@ The Rally dashboard embodies these principles:
    - AI-processed message count
 
 2. **Incoming Messages**
-   - All emails received by Rally
+   - All emails received by Email2ChatGPT
    - Shows sender name, email, subject, and time
    - AI-generated summary preview
    - Badges for:
@@ -35,8 +35,8 @@ The Rally dashboard embodies these principles:
      - Reply status
 
 3. **Outgoing Replies**
-   - All automated replies sent by Rally
-   - Shows what Rally sent and when
+   - All automated replies sent by Email2ChatGPT
+   - Shows what Email2ChatGPT sent and when
    - Links back to original messages
    - Preview of AI-generated content
 
@@ -53,7 +53,7 @@ Each message card displays:
 
 The dashboard includes a navigation bar with:
 - **Activity** (current view)
-- **Settings** (coming soon) - Configure general Rally behavior
+- **Settings** (coming soon) - Configure general Email2ChatGPT behavior
 - **AI Prompts** (coming soon) - Customize AI system prompts and models
 
 ## Design Details
@@ -96,8 +96,8 @@ ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT;
 
 ### Direction Field
 
-- `'inbound'` - Messages received by Rally
-- `'outbound'` - Replies sent by Rally
+- `'inbound'` - Messages received by Email2ChatGPT
+- `'outbound'` - Replies sent by Email2ChatGPT
 
 This allows the dashboard to cleanly separate incoming vs outgoing messages.
 
@@ -166,4 +166,3 @@ Planned features for upcoming releases:
 - **Postmark** - Reliable email sending and receiving
 - **OpenAI** - AI processing and response generation
 - **TypeScript** - Type-safe development
-
