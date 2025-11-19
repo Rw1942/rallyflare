@@ -18,46 +18,84 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 apiKey: this.env.OPENAI_API_KEY,
             });
 
-            // Build history string
-            let historyStr = "";
+            // --- 1. Build Conversation History ---
+            const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+                { role: "system", content: request.systemPrompt }
+            ];
+
+            // Add history (text-only for now)
             request.conversationHistory.forEach((msg) => {
-                if (msg.role === "user") {
-                    historyStr += `\n\nPrevious User Message (${msg.receivedAt}):\n${msg.content}`;
-                } else {
-                    historyStr += `\n\nPrevious Assistant Reply (${msg.receivedAt}):\n${msg.content}`;
-                }
+                messages.push({
+                    role: msg.role as "user" | "assistant",
+                    content: msg.content
+                });
             });
 
-            // Get current email content
-            let emailContent = request.postmarkData.TextBody || "(No body content)";
+            // --- 2. Prepare Current Message Content ---
+            let emailBody = request.postmarkData.TextBody || "(No body content)";
             const MAX_CONTENT_LENGTH = 50000;
-            if (emailContent.length > MAX_CONTENT_LENGTH) {
-                emailContent = emailContent.substring(0, MAX_CONTENT_LENGTH) + "\n\n[... truncated ...]";
+            if (emailBody.length > MAX_CONTENT_LENGTH) {
+                emailBody = emailBody.substring(0, MAX_CONTENT_LENGTH) + "\n\n[... truncated ...]";
             }
 
-            // Build prompt
-            let input = `${request.systemPrompt}\n\nConversation History:${historyStr}\n\nCurrent Email:\nFrom: ${request.postmarkData.FromFull?.Name} <${request.postmarkData.FromFull?.Email}>\nSubject: ${request.postmarkData.Subject}\n\n${emailContent}`;
+            // Construct text part with email metadata
+            let textContent = `Current Email:\nFrom: ${request.postmarkData.FromFull?.Name} <${request.postmarkData.FromFull?.Email}>\nSubject: ${request.postmarkData.Subject}\n\n${emailBody}`;
 
-            // Request context (simplified from original for now, can be expanded)
             if (request.requestContext) {
-                input += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
+                textContent += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
             }
+
+            // Handle Attachments
+            const contentParts: Array<OpenAI.Chat.ChatCompletionContentPart> = [];
+            const nonImageAttachments: string[] = [];
+
+            if (request.postmarkData.Attachments && request.postmarkData.Attachments.length > 0) {
+                for (const att of request.postmarkData.Attachments) {
+                    // Check if it's an image supported by OpenAI
+                    if (["image/jpeg", "image/png", "image/gif", "image/webp"].includes(att.ContentType)) {
+                        contentParts.push({
+                            type: "image_url",
+                            image_url: {
+                                // Postmark sends Content as base64
+                                url: `data:${att.ContentType};base64,${att.Content}`,
+                                detail: "auto"
+                            }
+                        });
+                    } else {
+                        nonImageAttachments.push(att.Name);
+                    }
+                }
+            }
+
+            // Add non-image attachments note to text
+            if (nonImageAttachments.length > 0) {
+                textContent += `\n\n[System Note: The user also attached the following files: ${nonImageAttachments.join(", ")}]`;
+            }
+
+            // Add text part first
+            contentParts.unshift({ type: "text", text: textContent });
+
+            // Add current message to history
+            messages.push({
+                role: "user",
+                content: contentParts
+            });
 
             const aiStartTime = Date.now();
 
-            // Using GPT-5.1 as per user request and documentation
-            const response = await (openai as any).responses.create({
-                model: "gpt-5.1",
-                input,
-                reasoning: { effort: "low" },
-                text: { verbosity: "low" },
-                max_output_tokens: 500,
+            // --- 3. Call OpenAI API ---
+            // Using gpt-4o for best vision/multimodal support
+            const response = await openai.chat.completions.create({
+                model: "gpt-4o", 
+                messages: messages,
+                max_tokens: 1000, // Increased for potentially longer visual descriptions
+                temperature: 0.2,
             });
 
             const aiEndTime = Date.now();
             const aiResponseTimeMs = aiEndTime - aiStartTime;
 
-            const assistantMessage = response.output_text || "";
+            const assistantMessage = response.choices[0]?.message?.content || "";
 
             if (!assistantMessage) {
                 throw new Error("No valid response from OpenAI");
@@ -66,15 +104,14 @@ export default class AiService extends WorkerEntrypoint<Env> {
             return {
                 summary: assistantMessage.substring(0, 500),
                 reply: assistantMessage,
-                tokensInput: response.usage?.input_tokens,
-                tokensOutput: response.usage?.output_tokens,
+                tokensInput: response.usage?.prompt_tokens,
+                tokensOutput: response.usage?.completion_tokens,
                 aiResponseTimeMs,
                 openaiResponseId: response.id,
             };
 
         } catch (error) {
             console.error("AI: Error generating reply:", error);
-            // Return a safe fallback so the system doesn't crash, but indicate error
             return {
                 summary: "Error processing with AI",
                 reply: "Thank you for your email. We encountered an issue processing it with AI. We'll get back to you soon.",

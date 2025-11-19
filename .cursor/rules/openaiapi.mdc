@@ -4,9 +4,9 @@ alwaysApply: false
 ---
 
 
-# Rally x GPT-5: Developer Guide (TypeScript, Responses API, Threaded)
+# Rally x GPT-5.1: Developer Guide (TypeScript, Responses API, Threaded)
 
-This is the minimal, practical guide for wiring GPT-5 into Rally using the **Responses API** with **TypeScript only**. Optimized for:
+This is the minimal, practical guide for wiring GPT-5.1 into Rally using the **Responses API** with **TypeScript only**. Optimized for:
 
 * Email-style threaded conversations
 * Predictable latency + cost
@@ -28,11 +28,11 @@ const client = new OpenAI({
 
 Recommended defaults:
 
-* **Primary:** `gpt-5`
-* **Cheaper / high-volume:** `gpt-5-mini`
-* **Very simple classification / routing:** `gpt-5-nano`
+* **Primary:** `gpt5.1`
+* **Cheaper / high-volume:** `gpt5.1-mini`
+* **Very simple classification / routing:** `gpt5.1-nano`
 
-Key GPT-5 specifics: ([OpenAI Platform][1])
+Key GPT-5.1 specifics: ([OpenAI Platform][1])
 
 * Use `reasoning.effort` instead of `temperature` / `top_p`.
 * Use `text.verbosity` to control answer length.
@@ -47,7 +47,7 @@ Baseline POC: internal helper, summaries, drafts.
 
 ```ts
 const response = await client.responses.create({
-  model: "gpt-5",
+  model: "gpt5.1",
   input: "Summarize this thread in 3 bullet points for an internal notes panel.",
   reasoning: { effort: "low" },
   text: { verbosity: "low" },
@@ -77,7 +77,7 @@ Use these presets instead of tuning temperatures.
 
 ````ts
 const fast = await client.responses.create({
-  model: "gpt-5-mini",
+  model: "gpt5.1-mini",
   input: "Classify this email into one of: BUDGET_REQUEST, HIRING_REQUEST, VENDOR, OTHER: ```...email body...```",
   reasoning: { effort: "minimal" },
   text: { verbosity: "low" },
@@ -89,7 +89,7 @@ const fast = await client.responses.create({
 
 ```ts
 const deep = await client.responses.create({
-  model: "gpt-5",
+  model: "gpt5.1",
   input: `
 You are Rally's policy engine.
 Given this email thread, determine:
@@ -133,7 +133,7 @@ Two simple patterns:
 
 ```ts
 const first = await client.responses.create({
-  model: "gpt-5",
+  model: "gpt5.1",
   input: `
 You are Rally AI.
 Summarize and normalize this email chain into a structured internal note.
@@ -153,7 +153,7 @@ Thread:
 
 ```ts
 const followup = await client.responses.create({
-  model: "gpt-5",
+  model: "gpt5.1",
   input: `
 Update the prior summary given this new reply.
 Return only the updated structured summary.
@@ -185,7 +185,7 @@ const history = [
 ].join("\n\n");
 
 const res = await client.responses.create({
-  model: "gpt-5",
+  model: "gpt5.1",
   input: history + "\n\nUpdate the summary only.",
   reasoning: { effort: "minimal" },
   text: { verbosity: "low" },
@@ -213,7 +213,7 @@ Switch to:
 
 ```ts
 const res = await client.responses.create({
-  model: "gpt-5-mini",
+  model: "gpt5.1-mini",
   input: `
 You are Rally AI.
 ${/* flatten your old messages into one structured input string */""}
@@ -240,19 +240,19 @@ You can hard-code these in config for your POC:
 ```ts
 export const RALLY_GPT5_DEFAULTS = {
   summary: {
-    model: "gpt-5-mini",
+    model: "gpt5.1-mini",
     reasoning: { effort: "minimal" as const },
     text: { verbosity: "low" as const },
     max_output_tokens: 300,
   },
   classification: {
-    model: "gpt-5-nano",
+    model: "gpt5.1-nano",
     reasoning: { effort: "minimal" as const },
     text: { verbosity: "low" as const },
     max_output_tokens: 120,
   },
   criticalDecision: {
-    model: "gpt-5",
+    model: "gpt5.1",
     reasoning: { effort: "medium" as const },
     text: { verbosity: "medium" as const },
     max_output_tokens: 800,
@@ -262,3 +262,22 @@ export const RALLY_GPT5_DEFAULTS = {
 
 Use these presets when calling `responses.create` to keep behavior consistent across services.
 
+
+---
+
+## 7. Sending Files
+
+To upload files (e.g., for PDF parsing or context), use `client.files.create`.
+
+```ts
+import fs from "fs";
+
+const file = await client.files.create({
+  file: fs.createReadStream("document.pdf"),
+  purpose: "assistants",
+});
+
+console.log(file.id);
+```
+
+You can then reference this file ID in other API calls that support file attachments.
