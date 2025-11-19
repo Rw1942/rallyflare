@@ -181,10 +181,12 @@ Postmark → Ingest Worker → AI Worker → Ingest → Mailer Worker → Postma
     - User-friendly descriptions (no technical jargon)
 
 5.  **Reply Formatting**
-    - **Plain text base**: AI returns plain text (no markdown parsing issues)
-    - **HTML version**: Simple `\n` → `<br>` conversion
+    - **Auto-detection**: Intelligently detects plain text, markdown, or HTML
+    - **Smart conversion**: Converts markdown to email-safe HTML with inline styles
+    - **No dependencies**: Custom regex-based parser (no external libraries)
+    - **Graceful degradation**: Falls back to plain text if format unclear
     - **Footer**: Table-based HTML for maximum email client compatibility
-    - Works perfectly in Gmail, Outlook, Apple Mail
+    - Works perfectly in Gmail, Outlook, Apple Mail, mobile clients
 
 ---
 
@@ -243,16 +245,16 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 - Parses email headers, body, attachments
 - Stores messages in D1 database
 - Coordinates with other services (AI, Mailer, Attachments)
-- Generates email footer with metrics
-- Converts plain text AI responses to HTML
-- Serves admin dashboard
+- **Intelligent formatting**: Auto-detects and converts plain text/markdown/HTML
+- Generates email footer with processing metrics and cost
+- Serves admin dashboard with activity views
 
 **rally-ai** (OpenAI Integration)
-- Uploads attachments to OpenAI Files API
-- Calls OpenAI Responses API (`/v1/responses`)
-- Returns plain text responses only
+- Uploads attachments to OpenAI Files API in parallel
+- Calls OpenAI Responses API (`/v1/responses`) exclusively
+- Returns plain text responses (GPT-5.1 output)
 - Tracks token usage and timing
-- No HTML formatting (single responsibility)
+- No formatting or HTML (single responsibility: talk to OpenAI)
 
 **rally-mailer** (Email Sending)
 - Sends emails via Postmark API
@@ -318,6 +320,22 @@ Configure in Settings page:
 - Reasoning effort: minimal, low, medium, high
 - Text verbosity: low, medium, high
 - Cost per 1M tokens (auto-populated based on model selection)
+
+### Email Formatting
+
+Rally intelligently handles GPT-5.1 responses in any format:
+
+**Auto-detection logic:**
+1. Scans for HTML tags (`<div>`, `<p>`) → uses as-is
+2. Scans for markdown patterns (`#`, `**`, `-`, `` ` ``) → converts to HTML
+3. Falls back to plain text → wraps with preserved formatting
+
+**Markdown support:**
+- Headers, bold, italic, code blocks, inline code
+- Links, bullet lists, numbered lists
+- All converted to inline-styled HTML for email compatibility
+
+**No external libraries:** Custom regex-based parser (~100 lines) in `utils/emailFormatter.ts`
 
 ## License
 
