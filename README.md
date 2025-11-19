@@ -10,6 +10,7 @@ Rally receives emails via Postmark, processes them with GPT-5.1 (including full 
 - 📧 Receive emails via Postmark inbound webhooks
 - 🗄️ Store messages, participants, and metadata in Cloudflare D1
 - 🤖 **Process with GPT-5.1** using OpenAI's Responses API (adaptive reasoning)
+- 📎 **File attachment support** - Send PDFs, images, and documents directly to GPT-5.1
 - 🧵 **Thread-aware** - tracks up to 5 previous messages in conversation history
 - 📤 Send automated replies via Postmark with proper email threading
 - 🎨 **Beautiful admin dashboard** with modern, soft design
@@ -18,6 +19,7 @@ Rally receives emails via Postmark, processes them with GPT-5.1 (including full 
 - 👥 **User tracking & compliance** - GDPR-compliant contact management with consent tracking
 - 🔍 Full RESTful API for message management
 - ⚡ Edge-deployed for instant response times
+- 🔒 **Cloudflare Access protected** - Secure admin dashboard with bypass for webhooks
 
 ## Quick Start
 
@@ -39,14 +41,16 @@ cd services/mailer && npx wrangler secret put POSTMARK_TOKEN
 # AI needs OpenAI key
 cd ../../services/ai && npx wrangler secret put OPENAI_API_KEY
 
-# 6. Deploy Services
-cd ../../services/mailer && npx wrangler deploy
+# 6. Deploy Services (each service individually)
+cd services/mailer && npx wrangler deploy
 cd ../ai && npx wrangler deploy
 cd ../attachments && npx wrangler deploy
 cd ../ingest && npx wrangler deploy
 
-# 7. Configure Postmark webhook to point to the Ingest worker:
-# https://rallyflare.your-subdomain.workers.dev/postmark/inbound
+# 7. Configure Cloudflare Access (see Security section below)
+
+# 8. Configure Postmark webhook:
+# https://Rick:123@rallyflare.your-subdomain.workers.dev/postmark/inbound
 ```
 
 See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration.
@@ -76,13 +80,14 @@ Rally is designed to be **invisible** - your users never log in, never see a UI,
 
 | Component | Purpose |
 |-----------|---------|
-| **Ingest Service** | Main entry point. Handles webhooks, dashboard, D1 storage, and orchestration. |
-| **AI Service** | Dedicated worker for OpenAI interactions (GPT-5). |
+| **Ingest Service** | Main entry point. Handles webhooks, dashboard, D1 storage, and orchestration. Webhook: `/postmark/inbound` |
+| **AI Service** | Dedicated worker for OpenAI GPT-5.1 via native REST API. Supports file attachments via multipart/form-data. |
 | **Mailer Service** | Dedicated worker for sending emails via Postmark. |
 | **Attachments Service** | Handles file uploads to Cloudflare R2. |
 | **Cloudflare D1** | Stores messages, participants, and metadata. |
 | **Cloudflare R2** | Stores email attachments. |
 | **Postmark** | Inbound + outbound email handling. |
+| **Cloudflare Access** | Protects admin dashboard; bypasses webhook path. |
 
 ## Setup Steps
 
@@ -213,27 +218,49 @@ npx wrangler r2 bucket create rally-attachments
 
 ### 7. Deploy
 
-Deploy each service individually. Order matters slightly (deploy dependencies first).
+Deploy each service individually. Services can be deployed in any order as they use Service Bindings.
 
 ```bash
-# 1. Deploy Mailer
-cd services/mailer
-npx wrangler deploy
+# Navigate to project root
+cd /path/to/rallyflare
 
-# 2. Deploy AI
-cd ../ai
-npx wrangler deploy
-
-# 3. Deploy Attachments
-cd ../attachments
-npx wrangler deploy
-
-# 4. Deploy Ingest (Main Worker)
-cd ../ingest
-npx wrangler deploy
+# Deploy each service (order doesn't matter with Service Bindings)
+cd services/mailer && npx wrangler deploy
+cd ../ai && npx wrangler deploy
+cd ../attachments && npx wrangler deploy
+cd ../ingest && npx wrangler deploy
 ```
 
 You'll get a URL like: `https://rallyflare.your-subdomain.workers.dev`
+
+### 8. Configure Cloudflare Access (Security)
+
+Rally uses Cloudflare Access to protect the admin dashboard while allowing Postmark webhooks through.
+
+**Required Setup:**
+
+1. **Create Bypass Application for Webhook Path**
+   - Go to Cloudflare Dashboard → Zero Trust → Access → Applications
+   - Click "Add an application" → "Self-hosted"
+   - **Application Name:** "Postmark Webhook Bypass"
+   - **Domain:** `rallyflare.your-subdomain.workers.dev`
+   - **Path:** `/postmark/inbound`
+   
+2. **Add Bypass Policy**
+   - **Policy Name:** "Bypass for Everyone"
+   - **Action:** Bypass
+   - **Rule type:** Include
+   - **Selector:** Everyone
+
+3. **Keep Main Application Protected**
+   - Your main "Rally Admin Console" application should protect the root path
+   - This keeps the dashboard secure while allowing webhooks
+
+**Why this matters:** Without the Bypass policy, Postmark webhooks will be blocked by Cloudflare Access authentication, and emails won't process.
+
+### 9. Configure Postmark Webhook
+
+See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed instructions.
 
 ## Deployment Workflow
 
@@ -267,13 +294,26 @@ When making changes to Rally, follow this workflow:
 
 5. **Apply database migrations (if any):**
    ```bash
+   # Run from project root
    npx wrangler d1 migrations apply rally-database --remote
    ```
 
-6. **Deploy Worker:**
+6. **Deploy Services** (deploy only the services you changed):
    ```bash
-   npx wrangler deploy
+   # If you changed the AI service:
+   cd services/ai && npx wrangler deploy
+   
+   # If you changed the Ingest service:
+   cd services/ingest && npx wrangler deploy
+   
+   # If you changed the Mailer service:
+   cd services/mailer && npx wrangler deploy
+   
+   # If you changed the Attachments service:
+   cd services/attachments && npx wrangler deploy
    ```
+
+**Note:** All deployment commands must be run from the specific service directory, not the project root.
 
 ## Deployment Checklist
 
@@ -523,7 +563,8 @@ The model is fixed to `gpt-5.1` and uses the OpenAI Responses API (`/v1/response
 
 ### ✅ Completed
 - Email receiving via Postmark inbound webhooks
-- GPT-5.1 integration with Responses API
+- GPT-5.1 integration with native REST API (Responses API)
+- **File attachment support** - PDFs, images, documents sent to GPT-5.1 via multipart/form-data
 - Thread-aware conversation tracking (up to 5 messages)
 - Admin dashboard with incoming/outgoing views
 - Performance metrics tracking (time, tokens)
@@ -533,11 +574,13 @@ The model is fixed to `gpt-5.1` and uses the OpenAI Responses API (`/v1/response
 - User tracking with GDPR compliance features
 - Interaction audit trail
 - Consent management (email, data processing)
+- **Cloudflare Access integration** - Dashboard protected, webhook bypass configured
+- R2 attachment storage and metadata tracking
 
 ### 🚧 In Progress
-- Cloudflare Access authentication for admin dashboard
 - Message detail view with full content
 - Manual re-process/re-send functionality
+- Attachment viewing in dashboard
 
 ### 🔮 Future Plans
 - R2 attachment storage and viewing
