@@ -63,8 +63,8 @@ Examples:
 3. Worker writes metadata to D1
 4. Worker pushes attachments to R2
 5. Worker calls GPT-5.1 with:
-   - Full email text
-   - All attachments as input
+   - Full email text (with flattened HTML for context)
+   - All attachments uploaded via OpenAI Files API
    - Conversation thread history keyed off In-Reply-To
 
 **System Response:**
@@ -135,7 +135,7 @@ Postmark → Cloudflare Worker → D1 + R2 → OpenAI REST → Postmark outbound
 | **Cloudflare Workers** | Main logic + routing |
 | **D1** | Conversation metadata + message history |
 | **R2** | Attachments storage |
-| **OpenAI GPT-5.1** | Chat + attachments |
+| **OpenAI GPT-5.1** | Chat + attachments (via Files API + Responses API) |
 
 ## 6. Core Features (MVP)
 
@@ -144,7 +144,9 @@ Postmark → Cloudflare Worker → D1 + R2 → OpenAI REST → Postmark outbound
 
 2.  **Attachments**
     - Supports: PDFs, Word files, Images, Excel, Audio (optional), HTML
-    - Each attachment is uploaded to R2 and streamed to GPT-5.1.
+    - Each attachment is uploaded to R2 for storage.
+    - Attachments are uploaded to OpenAI Files API and referenced in the Responses API call.
+    - Inline images are preserved in text context; non-inline attachments are listed for AI visibility.
 
 3.  **Thread Persistence**
     - Message-ID and In-Reply-To preserved
@@ -210,7 +212,7 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 | Component | Purpose |
 |-----------|---------|
 | **Ingest Service** | Main entry point. Handles webhooks, dashboard, D1 storage, and orchestration. Webhook: `/postmark/inbound` |
-| **AI Service** | Dedicated worker for OpenAI GPT-5.1 via native REST API. Supports file attachments via multipart/form-data. |
+| **AI Service** | Dedicated worker for OpenAI GPT-5.1 via native REST API. Supports file attachments via OpenAI Files API + Responses API. |
 | **Mailer Service** | Dedicated worker for sending emails via Postmark. |
 | **Attachments Service** | Handles file uploads to Cloudflare R2. |
 | **Cloudflare D1** | Stores messages, participants, and metadata. |
