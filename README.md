@@ -7,19 +7,19 @@ Rally is an invisible, email-native AI assistant built on Cloudflare Workers. Us
 Rally receives emails via Postmark, processes them with GPT-5.1 (including full conversation thread history), and sends contextual replies—all within the same email thread. Everything is logged and searchable in Cloudflare D1 with detailed performance metrics.
 
 **Key Features:**
-- 📧 Receive emails via Postmark inbound webhooks
-- 🗄️ Store messages, participants, and metadata in Cloudflare D1
-- 🤖 **Process with GPT-5.1** using OpenAI's Responses API (adaptive reasoning)
-- 📎 **File attachment support** - Send PDFs, images, and documents directly to GPT-5.1
-- 🧵 **Thread-aware** - tracks up to 5 previous messages in conversation history
-- 📤 Send automated replies via Postmark with proper email threading
-- 🎨 **Beautiful admin dashboard** with modern, soft design
-- 📊 **Performance metrics** - processing time, AI response time, token usage
-- ✉️ **Email-specific AI prompts** - different AI behavior per email address
-- 👥 **User tracking & compliance** - GDPR-compliant contact management with consent tracking
-- 🔍 Full RESTful API for message management
-- ⚡ Edge-deployed for instant response times
-- 🔒 **Cloudflare Access protected** - Secure admin dashboard with bypass for webhooks
+- Receive emails via Postmark inbound webhooks
+- Store messages, participants, and metadata in Cloudflare D1
+- **Process with GPT-5.1** using OpenAI's Responses API (adaptive reasoning)
+- **File attachment support** - Send PDFs, images, and documents directly to GPT-5.1
+- **Thread-aware** - tracks up to 5 previous messages in conversation history
+- Send automated replies via Postmark with proper email threading
+- **Beautiful admin dashboard** with modern, soft design
+- **Performance metrics** - processing time, AI response time, token usage
+- **Email-specific AI prompts** - different AI behavior per email address
+- **User tracking & compliance** - GDPR-compliant contact management with consent tracking
+- Full RESTful API for message management
+- Edge-deployed for instant response times
+- **Cloudflare Access protected** - Secure admin dashboard with bypass for webhooks
 
 ## Quick Start
 
@@ -60,13 +60,13 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 Rally is designed to be **invisible** - your users never log in, never see a UI, never install anything. They just email your Rally address and get intelligent, contextual responses.
 
 **Key Benefits:**
-- ⚡ **Instant responses** - Edge-deployed on Cloudflare for <100ms latency
-- 🧵 **Context-aware** - Remembers conversation history (up to 5 messages)
-- 🎯 **Purpose-specific** - Different AI personalities per email address
-- 📊 **Observable** - Track performance metrics for every message
-- 🔧 **Easy to customize** - Web UI to update prompts, no code deploys needed
-- 💰 **Cost-effective** - Serverless, pay-per-use, no idle costs
-- 🛡️ **Secure** - Runs on Cloudflare's edge network, secrets managed by Wrangler
+- **Instant responses** - Edge-deployed on Cloudflare for <100ms latency
+- **Context-aware** - Remembers conversation history (up to 5 messages)
+- **Purpose-specific** - Different AI personalities per email address
+- **Observable** - Track performance metrics for every message
+- **Easy to customize** - Web UI to update prompts, no code deploys needed
+- **Cost-effective** - Serverless, pay-per-use, no idle costs
+- **Secure** - Runs on Cloudflare's edge network, secrets managed by Wrangler
 
 **Use Cases:**
 - Customer support triage and initial responses
@@ -673,11 +673,11 @@ Rally is built on Cloudflare's edge platform, which means:
 
 Rally is an active project and contributions are welcome! Areas where help would be appreciated:
 
-- 🐛 Bug fixes and issue reports
-- 📚 Documentation improvements
-- ✨ New feature implementations (see Roadmap)
-- 🧪 Test coverage
-- 🎨 Dashboard UI enhancements
+- Bug fixes and issue reports
+- Documentation improvements
+- New feature implementations (see Roadmap)
+- Test coverage
+- Dashboard UI enhancements
 
 Feel free to open issues or submit PRs on GitHub.
 
