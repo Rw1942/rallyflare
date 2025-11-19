@@ -1,5 +1,6 @@
 import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
 import { PostmarkInboundMessage, AiRequest, EmailReply } from "shared/types";
+import { hasImages, flattenHtml, appendAttachments } from "./utils/html";
 
 import type MailerService from "../../mailer/src/index";
 import type AiService from "../../ai/src/index";
@@ -81,14 +82,25 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
   if (username !== env.WEBHOOK_USERNAME || password !== env.WEBHOOK_PASSWORD) return new Response('Unauthorized', { status: 401 });
 
   let internalId: string | null = null;
+  let postmarkData: PostmarkInboundMessage | null = null;
+
   try {
-    const postmarkData = await request.json() as PostmarkInboundMessage;
+    postmarkData = await request.json() as PostmarkInboundMessage;
     const processingStartTime = Date.now();
     internalId = crypto.randomUUID();
     const receivedAt = new Date().toISOString();
 
     // 1. Store Message in D1
     const rallyEmailAddress = extractRallyEmailAddress(postmarkData);
+
+    // Determine text content: use flattened HTML if images are present, otherwise prefer standard TextBody
+    let textContent = postmarkData.TextBody || "";
+    if (hasImages(postmarkData) || !textContent) {
+      textContent = flattenHtml(postmarkData.HtmlBody || "", postmarkData.Attachments || []);
+    }
+
+    // Append list of non-inline attachments (PDFs, etc.) so AI knows they exist
+    textContent = appendAttachments(textContent, postmarkData.Attachments || []);
 
     await env.DB.prepare(`
       INSERT INTO messages (
@@ -102,7 +114,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       postmarkData.Headers?.find((h: any) => h.Name === "In-Reply-To")?.Value || null,
       postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || null,
       postmarkData.FromFull?.Name || "", postmarkData.FromFull?.Email || postmarkData.From,
-      postmarkData.TextBody || "", postmarkData.HtmlBody || "",
+      textContent, postmarkData.HtmlBody || "",
       postmarkData.MessageID, (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0,
       'inbound', rallyEmailAddress, postmarkData.FromFull?.Email || postmarkData.From
     ).run();
@@ -224,7 +236,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     await env.DB.prepare(`
       UPDATE messages
       SET llm_summary = ?, llm_reply = ?, tokens_input = ?, tokens_output = ?, 
-          processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?
+      processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?
       WHERE id = ?
     `).bind(
       aiResponse.summary, aiResponse.reply, aiResponse.tokensInput || null, aiResponse.tokensOutput || null,
@@ -253,6 +265,49 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 
   } catch (error) {
     console.error("Ingest Error:", error);
+
+    // Attempt to send a friendly error email if we have the sender's info
+    if (postmarkData && (postmarkData.From || postmarkData.FromFull?.Email)) {
+        try {
+            const recipient = postmarkData.FromFull?.Email || postmarkData.From;
+            const replyToAddress = extractRallyEmailAddress(postmarkData);
+            const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
+            const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
+            
+            const errorBody = `
+<p>Hi there,</p>
+<p>We ran into a little hiccup while processing your email. We're sorry about that!</p>
+<p>Here are the technical details of what happened:</p>
+<pre style="background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto;">
+${error instanceof Error ? error.message : String(error)}
+</pre>
+<p>Please try again later.</p>
+<p>Best,<br>The Rally Team</p>
+            `;
+
+            const errorReply: EmailReply = {
+                from: replyToAddress || "no-reply@rallyflare.com",
+                to: recipient,
+                subject: `Re: ${postmarkData.Subject || "Your Request"} - Error`,
+                textBody: `Hi there,\n\nWe ran into a little hiccup while processing your email. We're sorry about that!\n\nError details: ${error instanceof Error ? error.message : String(error)}\n\nPlease try again later.\n\nBest,\nThe Rally Team`,
+                htmlBody: errorBody,
+                replyTo: replyToAddress || "no-reply@rallyflare.com",
+                inReplyTo: postmarkData.MessageID,
+                references: referencesValue,
+                originalMessageId: internalId || undefined
+            };
+
+            await env.MAILER.sendEmail(errorReply);
+            
+            // Return 200 to stop Postmark retries since we handled the error by notifying the user
+            return new Response(JSON.stringify({ success: false, error: String(error), handled: true }), { status: 200 });
+
+        } catch (emailError) {
+            console.error("Failed to send error email:", emailError);
+            // If sending the error email fails, we fall back to 500
+        }
+    }
+
     return new Response(JSON.stringify({ success: false, error: String(error) }), { status: 500 });
   }
 }

@@ -43,6 +43,7 @@ export interface PostmarkInboundMessage {
         Content: string;
         ContentType: string;
         ContentLength: number;
+        ContentID?: string;
     }[];
 }
 

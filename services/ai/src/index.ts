@@ -59,28 +59,35 @@ export default class AiService extends WorkerEntrypoint<Env> {
             if (request.textVerbosity) payload.text = { verbosity: request.textVerbosity };
 
             // Check for Attachments
-            // We will take the FIRST attachment if available, to keep it simple per instructions.
-            const attachment = request.postmarkData.Attachments?.[0];
+            // Filter out inline images (ContentID present) and small images (< 5KB)
+            // to avoid sending noise (icons, signatures) to the AI.
+            const validAttachments = request.postmarkData.Attachments?.filter(att => {
+                const isInline = !!att.ContentID;
+                const isSmallImage = att.ContentType.startsWith("image/") && att.ContentLength < 5000;
+                return !isInline && !isSmallImage;
+            }) || [];
 
-            if (attachment) {
-                console.log(`AI: Processing attachment: ${attachment.Name}`);
+            if (validAttachments.length > 0) {
+                console.log(`AI: Processing ${validAttachments.length} attachments`);
                 
-                // Convert Base64 to Uint8Array
-                const binaryString = atob(attachment.Content);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-                
-                // Create File object (standard in Workers)
-                const file = new File([bytes], attachment.Name, {
-                    type: attachment.ContentType
+                const files = validAttachments.map(attachment => {
+                    // Convert Base64 to Uint8Array
+                    const binaryString = atob(attachment.Content);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    // Create File object
+                    return new File([bytes], attachment.Name, {
+                        type: attachment.ContentType
+                    });
                 });
 
-                // Use multipart helper
+                // Use multipart helper with array of files
                 const { body: multipartBody, boundary } = buildMultipart({
                     ...payload,
-                    file // Attach the file
+                    file: files // Send all files
                 });
 
                 body = multipartBody;
@@ -138,11 +145,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
 
         } catch (error) {
             console.error("AI: Error generating reply:", error);
-            return {
-                summary: "Error processing with AI",
-                reply: "Thank you for your email. We encountered an issue processing it with AI. We'll get back to you soon.",
-                aiResponseTimeMs: 0,
-            };
+            throw error;
         }
     }
 

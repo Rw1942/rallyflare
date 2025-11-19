@@ -1,23 +1,15 @@
 export function buildMultipart(parts: Record<string, any>) {
   const boundary = "----cf-" + crypto.randomUUID();
-  const chunks = [];
+  const chunks: (string | Blob | Uint8Array)[] = [];
 
   for (const [name, value] of Object.entries(parts)) {
-    chunks.push(`--${boundary}`);
-
-    if (value instanceof File) {
-      chunks.push(
-        `Content-Disposition: form-data; name="${name}"; filename="${value.name}"`,
-        `Content-Type: ${value.type || "application/octet-stream"}`,
-        "",
-        value
-      );
+    if (Array.isArray(value)) {
+      // Handle arrays (e.g. multiple files)
+      for (const item of value) {
+        appendPart(chunks, boundary, name, item);
+      }
     } else {
-      chunks.push(
-        `Content-Disposition: form-data; name="${name}"`,
-        "",
-        typeof value === "string" ? value : JSON.stringify(value)
-      );
+      appendPart(chunks, boundary, name, value);
     }
   }
 
@@ -29,3 +21,21 @@ export function buildMultipart(parts: Record<string, any>) {
   };
 }
 
+function appendPart(chunks: (string | Blob | Uint8Array)[], boundary: string, name: string, value: any) {
+  chunks.push(`--${boundary}`);
+
+  if (value instanceof File) {
+    chunks.push(
+      `Content-Disposition: form-data; name="${name}"; filename="${value.name}"`,
+      `Content-Type: ${value.type || "application/octet-stream"}`,
+      "",
+      value
+    );
+  } else {
+    chunks.push(
+      `Content-Disposition: form-data; name="${name}"`,
+      "",
+      typeof value === "string" ? value : JSON.stringify(value)
+    );
+  }
+}
