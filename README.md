@@ -310,7 +310,7 @@ Email-Specific Settings → Project Defaults → Hardcoded Fallbacks
 
 **Configurable Parameters:**
 - `system_prompt` - AI personality and behavior instructions
-- `model` - Which GPT model to use (`gpt-5.1`, `gpt-5.1-mini`)
+- `model` - Currently only `gpt-5.1` (no mini version available)
 - `reasoning_effort` - Thinking depth (`minimal`, `low`, `medium`, `high`)
 - `text_verbosity` - Response length (`low`, `medium`, `high`)
 - `max_output_tokens` - Hard limit on response length
@@ -413,12 +413,12 @@ npx wrangler d1 execute rally-database --remote --command "DELETE FROM messages 
 ### GPT-5.1 API Configuration
 
 Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
-- **Model**: `gpt-5.1` or `gpt-5.1-mini`
+- **Model**: `gpt-5.1` (only available model)
 - **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`
 - **NOT using**: Chat Completions API (`/v1/chat/completions`)
 
 **Available in Settings:**
-- **Model** - GPT-5.1 (with reasoning) or GPT-5.1 Mini (faster, cheaper)
+- **Model** - GPT-5.1 only (no mini version available as of 2025)
 - **Reasoning effort** - minimal, low, medium, high (controls thinking depth)
 - **Text verbosity** - low, medium, high (controls response length)
 - **Max output tokens** - Hard cap on response length (50-128000)

@@ -2,11 +2,17 @@
 
 Cloudflare Workers • TypeScript • D1 • R2
 
+**IMPORTANT: Model Names**
+- **Only Model:** `gpt-5.1` - OpenAI's latest reasoning model
+- **No Mini Version:** As of 2025, there is no `gpt-5.1-mini` model available
+- **Supported Parameters:** `reasoning.effort`, `text.verbosity`, `max_output_tokens`
+- **Unsupported Parameters:** `temperature`, `top_p` (will cause 400 errors)
+
 ---
 
 ## 1. Authentication (Workers-native)
 
-Always use the Worker’s env for secure API key injection:
+Always use the Worker's env for secure API key injection:
 
 ```ts
 const headers = (env: Env) => ({
@@ -23,10 +29,10 @@ const headers = (env: Env) => ({
 ```ts
 export async function chat(env: Env, prompt: string) {
   const body = {
-    model: "gpt-5.1",
+    model: "gpt-5.1",  // Only valid model for Responses API
     input: [{ role: "user", content: prompt }],
-    // Optional configuration
-    reasoning: { effort: "medium" }, // low, medium, high
+    // Supported configuration parameters
+    reasoning: { effort: "medium" }, // minimal, low, medium, high
     text: { verbosity: "low" },      // low, medium, high
     max_output_tokens: 1000
   };
