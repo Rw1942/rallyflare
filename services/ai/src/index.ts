@@ -1,76 +1,10 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { AiRequest, AiResponse } from "shared/types";
 import { buildMultipart } from "./multipart";
-import { marked } from "marked";
 
 export interface Env {
     OPENAI_API_KEY: string;
 }
-
-// Custom renderer for email-safe HTML
-const renderer = new marked.Renderer();
-
-// Override heading to add styles
-renderer.heading = function(token) {
-  const { text, depth } = token as any;
-  const sizes = ["24px", "20px", "18px", "16px", "14px", "12px"];
-  const size = sizes[depth - 1] || "16px";
-  const content = this.parser.parseInline(token.tokens);
-  return `<h${depth} style="font-family: sans-serif; color: #333; font-size: ${size}; margin-top: 20px; margin-bottom: 10px;">${content}</h${depth}>`;
-};
-
-// Override link to add styles
-renderer.link = function(token) {
-  const { href, title, text } = token as any;
-  const content = this.parser.parseInline(token.tokens);
-  return `<a href="${href}" title="${title || ''}" style="color: #007bff; text-decoration: none;">${content}</a>`;
-};
-
-// Override paragraph to add styles
-renderer.paragraph = function(token) {
-  const content = this.parser.parseInline(token.tokens);
-  return `<p style="font-family: sans-serif; color: #333; line-height: 1.6; margin-bottom: 15px;">${content}</p>`;
-};
-
-// Override list to add styles
-renderer.list = function(token) {
-  const { ordered, start } = token as any;
-  const body = this.parser.parse(token.items);
-  const tag = ordered ? "ol" : "ul";
-  const startAttr = (ordered && start !== 1) ? ` start="${start}"` : '';
-  return `<${tag}${startAttr} style="font-family: sans-serif; color: #333; padding-left: 20px; margin-bottom: 15px;">${body}</${tag}>`;
-};
-
-renderer.listitem = function(token) {
-  const content = this.parser.parse(token.tokens);
-  return `<li style="margin-bottom: 5px;">${content}</li>`;
-};
-
-// Override code block to add styles
-renderer.code = function(token) {
-  const { text, lang } = token as any;
-  // Code blocks usually have raw text, no inline parsing needed
-  return `<pre style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: monospace; font-size: 13px; color: #333; margin-bottom: 15px;"><code>${text}</code></pre>`;
-};
-
-// Override codespan to add styles
-renderer.codespan = function(token) {
-  const { text } = token as any;
-  return `<code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 13px; color: #d63384;">${text}</code>`;
-};
-
-// Override blockquote to add styles
-renderer.blockquote = function(token) {
-  const content = this.parser.parse(token.tokens);
-  return `<blockquote style="border-left: 4px solid #ccc; margin: 0; padding-left: 15px; color: #666; font-style: italic; margin-bottom: 15px;">${content}</blockquote>`;
-};
-
-// Set options
-marked.setOptions({
-  renderer: renderer,
-  gfm: true,
-  breaks: true
-});
 
 export default class AiService extends WorkerEntrypoint<Env> {
     /**
@@ -239,26 +173,10 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 throw new Error(`No valid response from OpenAI. Response: ${JSON.stringify(json)}`);
             }
 
-            // Convert Markdown to HTML with inline styles
-            // Fallback to simple HTML with line breaks if marked fails
-            let replyHtml: string;
-            try {
-                replyHtml = await marked.parse(assistantMessage);
-            } catch (markdownError) {
-                console.warn("AI: Markdown parsing failed, using simple HTML fallback:", markdownError);
-                // Simple HTML fallback: escape special chars but keep as valid HTML so footer can be appended
-                replyHtml = '<div style="font-family: sans-serif; color: #333; line-height: 1.6; white-space: pre-wrap;">' + 
-                    assistantMessage
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;') + 
-                    '</div>';
-            }
-
+            // AI worker just returns plain text - let ingest handle all formatting
             return {
                 summary: assistantMessage.substring(0, 500),
                 reply: assistantMessage,
-                replyHtml,
                 tokensInput: json.usage?.input_tokens,
                 tokensOutput: json.usage?.output_tokens,
                 aiResponseTimeMs,

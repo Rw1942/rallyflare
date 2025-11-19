@@ -79,8 +79,7 @@ export interface AiRequest {
 
 export interface AiResponse {
     summary: string;
-    reply: string;
-    replyHtml?: string;
+    reply: string; // Plain text only - ingest handles formatting
     tokensInput?: number;
     tokensOutput?: number;
     aiResponseTimeMs?: number;

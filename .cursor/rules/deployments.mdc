@@ -4,6 +4,18 @@ alwaysApply: false
 ---
 
 
+# RallyFlare Deployment Guide
+
+## Microservices Architecture
+
+RallyFlare uses a **microservices architecture** with separate Workers:
+- `rally-ingest` - Main service (handles webhooks, dashboard, coordinates other services)
+- `rally-ai` - OpenAI API interactions
+- `rally-mailer` - Postmark email sending
+- `rally-attachments` - R2 file storage
+
+## Quick Deployment (Microservices)
+
 ```bash
 # 1. Check what's changed
 git status
@@ -12,7 +24,7 @@ git status
 git add .
 
 # 3. Commit with clear message
-git commit -m "Brief description
+git commit -m "feat: your feature description
 
 - Bullet point details of what changed
 - Include any breaking changes
@@ -21,12 +33,27 @@ git commit -m "Brief description
 # 4. Push to GitHub (keeps repo in sync)
 git push origin main
 
-# 5. Apply database migrations (if any new migrations exist)
-npx wrangler d1 migrations apply rally-database --remote
+# 5. Apply database migrations (if any - manually for now)
+# Check migrations/ folder for new .sql files
+# Apply each new migration manually:
+npx wrangler d1 execute rally-database --remote --command "YOUR SQL HERE"
 
-# 6. Deploy the Worker
-npx wrangler deploy
+# 6. Deploy all services
+npx wrangler deploy services/ingest/src/index.ts --name rally-ingest && \
+npx wrangler deploy services/ai/src/index.ts --name rally-ai && \
+npx wrangler deploy services/mailer/src/index.ts --name rally-mailer && \
+npx wrangler deploy services/attachments/src/index.ts --name rally-attachments
 ```
+
+## Important Notes for Microservices
+
+1. **No Root wrangler.toml**: The root directory doesn't have a wrangler.toml, so you must deploy each service individually from its directory or specify the entry point.
+
+2. **Migrations Must Be Manual**: Because the D1 binding is in `services/ingest/wrangler.toml` but migrations are in the root `migrations/` folder, automated migrations don't work. Apply migrations manually using `npx wrangler d1 execute`.
+
+3. **Deploy Order Doesn't Matter**: The services are independent, but it's good practice to deploy dependencies first (mailer, ai, attachments) before the main ingest service.
+
+4. **Check Migrations Already Applied**: If you get "duplicate column" errors, the migration was already applied - that's okay!
 
 ## Key Wrangler Commands
 

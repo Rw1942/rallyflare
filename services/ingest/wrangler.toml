@@ -10,6 +10,7 @@ WEBHOOK_PASSWORD = "123"
 binding = "DB"
 database_name = "rally-database"
 database_id = "d80adc3d-40bf-4371-954b-884527f2a2c9"
+migrations_dir = "../../migrations"
 
 [[services]]
 binding = "MAILER"

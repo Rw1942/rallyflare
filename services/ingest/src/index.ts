@@ -1,6 +1,7 @@
 import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
 import { PostmarkInboundMessage, AiRequest, EmailReply } from "shared/types";
 import { hasImages, flattenHtml, appendAttachments, calculateCost } from "./utils/index";
+import { generateEmailFooter } from "./utils/footer";
 
 import type MailerService from "../../mailer/src/index";
 import type AiService from "../../ai/src/index";
@@ -223,7 +224,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       const aiTime = aiResponse.aiResponseTimeMs || 0;
       const openaiUploadTime = aiResponse.openaiUploadTimeMs || 0;
       const totalTimeSoFar = Date.now() - processingStartTime;
-      const ingestTime = Math.max(0, totalTimeSoFar - aiTime - attachmentTimeMs - openaiUploadTime); // Approximate ingest time
+      const ingestTime = Math.max(0, totalTimeSoFar - aiTime - attachmentTimeMs - openaiUploadTime);
       
       const inputTokens = aiResponse.tokensInput || 0;
       const outputTokens = aiResponse.tokensOutput || 0;
@@ -234,31 +235,23 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
         defaultSettings?.cost_output_per_1m ?? 10.00
       );
       
-      // Convert total time to seconds if over 1000ms
-      const totalTimeDisplay = totalTimeSoFar >= 1000 
-        ? `${(totalTimeSoFar / 1000).toFixed(2)} seconds`
-        : `${totalTimeSoFar}ms`;
-      
-      const footer = `
-<br><br>
-<div style="margin-top: 20px; padding-top: 12px; border-top: 1px solid #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #888888; line-height: 1.5;">
-<span style="font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</span><br>
-<span style="display: inline-block; margin-left: 8px;">&bull; Received and parsed your email: ${ingestTime}ms</span><br>
-${attachmentTimeMs > 0 ? `<span style="display: inline-block; margin-left: 8px;">&bull; Saved attachments to storage: ${attachmentTimeMs}ms</span><br>` : ''}${openaiUploadTime > 0 ? `<span style="display: inline-block; margin-left: 8px;">&bull; Uploaded files for AI analysis: ${openaiUploadTime}ms</span><br>` : ''}<span style="display: inline-block; margin-left: 8px;">&bull; AI generated response: ${aiTime}ms</span><br>
-<br>
-<span style="font-weight: 600; color: #666666;">AI Usage:</span> <span style="color: #888888;">$${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)</span>
-</div>
-`;
-      
-      const textFooter = `\n\n---\nRally processed this email in ${totalTimeDisplay}:\n• Received and parsed your email: ${ingestTime}ms\n${attachmentTimeMs > 0 ? `• Saved attachments to storage: ${attachmentTimeMs}ms\n` : ''}${openaiUploadTime > 0 ? `• Uploaded files for AI analysis: ${openaiUploadTime}ms\n` : ''}• AI generated response: ${aiTime}ms\n\nAI Usage: $${cost.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)`;
-
+      const footer = generateEmailFooter(
+        totalTimeSoFar,
+        ingestTime,
+        attachmentTimeMs,
+        openaiUploadTime,
+        aiTime,
+        inputTokens,
+        outputTokens,
+        cost
+      );
 
       const emailReply: EmailReply = {
-        from: replyToAddress, // Use the Rally email address that received the original message
+        from: replyToAddress,
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
-        textBody: aiResponse.reply + textFooter,
-        htmlBody: (aiResponse.replyHtml || aiResponse.reply.replace(/\n/g, '<br>')) + footer,
+        textBody: aiResponse.reply + footer.text,
+        htmlBody: aiResponse.reply.replace(/\n/g, '<br>') + footer.html,
         replyTo: replyToAddress,
         inReplyTo: postmarkData.MessageID,
         references: referencesValue,
