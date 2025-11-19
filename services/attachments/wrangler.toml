@@ -2,6 +2,6 @@ name = "rally-attachments"
 main = "src/index.ts"
 compatibility_date = "2025-10-08"
 
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "rally-attachments"
+# [[r2_buckets]]
+# binding = "BUCKET"
+# bucket_name = "rally-attachments"

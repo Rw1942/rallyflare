@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 export interface Env {
-    BUCKET: R2Bucket;
+    // BUCKET: R2Bucket; // R2 disabled for POC
 }
 
 export default class AttachmentsService extends WorkerEntrypoint<Env> {
@@ -12,30 +12,21 @@ export default class AttachmentsService extends WorkerEntrypoint<Env> {
      * @param contentType The MIME type
      */
     async uploadAttachment(filename: string, contentBase64: string, contentType: string): Promise<{ key: string; size: number; url?: string }> {
-        console.log("Attachments: Uploading", filename);
+        console.log("Attachments: Uploading (STUBBED)", filename);
 
         try {
-            // Decode base64
+            // Decode base64 to get size
             const binaryString = atob(contentBase64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
+            const size = binaryString.length;
+            const key = `stub-${crypto.randomUUID()}-${filename}`;
 
-            const key = `${crypto.randomUUID()}-${filename}`;
-
-            await this.env.BUCKET.put(key, bytes, {
-                httpMetadata: {
-                    contentType: contentType,
-                },
-            });
-
-            console.log("Attachments: Uploaded", key);
+            // Stubbed upload - no R2 interaction
+            console.log("Attachments: Upload stubbed", key);
 
             return {
                 key,
-                size: bytes.length,
-                // url: `...` // If we had a public domain, we'd return it here
+                size,
+                url: "https://example.com/stubbed-attachment"
             };
 
         } catch (error) {
@@ -45,6 +36,6 @@ export default class AttachmentsService extends WorkerEntrypoint<Env> {
     }
 
     async fetch(request: Request): Promise<Response> {
-        return new Response("Attachments Service Running");
+        return new Response("Attachments Service Running (Stubbed)");
     }
 }
