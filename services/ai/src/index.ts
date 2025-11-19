@@ -133,8 +133,9 @@ export default class AiService extends WorkerEntrypoint<Env> {
 
             if (request.reasoningEffort) payload.reasoning = { effort: request.reasoningEffort };
             if (request.textVerbosity) payload.text = { verbosity: request.textVerbosity };
-            if (request.temperature !== undefined) payload.temperature = request.temperature;
-            if (request.topP !== undefined) payload.top_p = request.topP;
+            
+            // Note: GPT-5.1 Responses API does not support temperature or top_p
+            // We ignore request.temperature and request.topP here to avoid 400 errors
 
             const aiStartTime = Date.now();
 

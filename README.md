@@ -314,18 +314,14 @@ Email-Specific Settings → Project Defaults → Hardcoded Fallbacks
 - `reasoning_effort` - Thinking depth (`minimal`, `low`, `medium`, `high`)
 - `text_verbosity` - Response length (`low`, `medium`, `high`)
 - `max_output_tokens` - Hard limit on response length
-- `temperature` - Randomness level (0-2, lower = more focused)
-- `top_p` - Nucleus sampling (0-1, alternative to temperature)
 
 **Example Use Case:**
 ```
 Global Settings (project_settings):
-  temperature: 1.0
   model: gpt-5.1
   reasoning_effort: medium
 
 support@company.com (email_settings):
-  temperature: 0.3        ← Override (more consistent)
   text_verbosity: high    ← Override (detailed answers)
   model: NULL             ← Use global default (gpt-5.1)
 
@@ -418,7 +414,7 @@ npx wrangler d1 execute rally-database --remote --command "DELETE FROM messages 
 
 Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
 - **Model**: `gpt-5.1` or `gpt-5.1-mini`
-- **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`, `temperature`, `top_p`
+- **Parameters**: `reasoning.effort`, `text.verbosity`, `max_output_tokens`
 - **NOT using**: Chat Completions API (`/v1/chat/completions`)
 
 **Available in Settings:**
@@ -426,11 +422,9 @@ Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
 - **Reasoning effort** - minimal, low, medium, high (controls thinking depth)
 - **Text verbosity** - low, medium, high (controls response length)
 - **Max output tokens** - Hard cap on response length (50-128000)
-- **Temperature** - Randomness (0-2, default 1.0, lower = more focused)
-- **Top P** - Nucleus sampling (0-1, default 1.0, alternative to temperature)
 - **Cost settings** - Input/output cost per 1M tokens for tracking
 
-**OpenAI Best Practice:** Modify either `temperature` OR `top_p`, not both.
+**Note:** GPT-5.1 does not support `temperature` or `top_p` parameters. Use `reasoning_effort` to control response characteristics.
 
 ### Email Formatting Architecture
 

@@ -25,7 +25,7 @@ email_settings (per address) → project_settings (global) → hardcoded fallbac
 - `project_settings` - Global defaults (system_prompt, model, temperature, reasoning_effort, etc.)
 - `email_settings` - Per-email overrides (any NULL field uses global default)
 
-**Configurable parameters:** `system_prompt`, `model`, `reasoning_effort`, `text_verbosity`, `max_output_tokens`, `temperature`, `top_p`
+**Configurable parameters:** `system_prompt`, `model`, `reasoning_effort`, `text_verbosity`, `max_output_tokens`
 
 **Implementation:** `services/ingest/src/utils/settingsMerge.ts` handles the merge logic cleanly.
 
@@ -180,13 +180,13 @@ npx wrangler d1 execute rally-database --remote --command "SELECT AVG(processing
 
 ```bash
 # Add email-specific settings
-npx wrangler d1 execute rally-database --remote --command "INSERT INTO email_settings (email_address, system_prompt, temperature) VALUES ('support@company.com', 'You are a helpful support assistant', 0.3)"
+npx wrangler d1 execute rally-database --remote --command "INSERT INTO email_settings (email_address, system_prompt, reasoning_effort) VALUES ('support@company.com', 'You are a helpful support assistant', 'medium')"
 
-# Update global temperature
-npx wrangler d1 execute rally-database --remote --command "UPDATE project_settings SET temperature=0.8, top_p=1.0 WHERE project_slug='default'"
+# Update global settings
+npx wrangler d1 execute rally-database --remote --command "UPDATE project_settings SET reasoning_effort='high' WHERE project_slug='default'"
 
 # Clear specific setting override (NULL = use global default)
-npx wrangler d1 execute rally-database --remote --command "UPDATE email_settings SET temperature=NULL WHERE email_address='support@company.com'"
+npx wrangler d1 execute rally-database --remote --command "UPDATE email_settings SET reasoning_effort=NULL WHERE email_address='support@company.com'"
 
 # Delete test messages
 npx wrangler d1 execute rally-database --remote --command "DELETE FROM messages WHERE from_email LIKE '%test%'"

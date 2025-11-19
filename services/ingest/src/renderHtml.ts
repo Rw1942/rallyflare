@@ -421,18 +421,6 @@ export function renderSettings(settings: {
               </div>
 
               <div class="form-group">
-                <label class="form-label" for="temperature">Temperature</label>
-                <span class="form-help">Controls randomness (0-2). Lower = focused, higher = creative. Default: 1.0. ⚠️ Use temperature OR top_p, not both.</span>
-                <input type="number" step="0.1" class="form-input" id="temperature" name="temperature" value="${currentTemperature}" min="0" max="2" required>
-              </div>
-
-              <div class="form-group">
-                <label class="form-label" for="top_p">Top P (Nucleus Sampling)</label>
-                <span class="form-help">Alternative to temperature (0-1). Lower = more focused. Default: 1.0. ⚠️ Use temperature OR top_p, not both.</span>
-                <input type="number" step="0.01" class="form-input" id="top_p" name="top_p" value="${currentTopP}" min="0" max="1" required>
-              </div>
-
-              <div class="form-group">
                 <label class="form-label">Cost Settings (per 1M tokens)</label>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                   <div>
@@ -645,18 +633,6 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
                 </div>
               </div>
 
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                  <label class="form-label" for="temperature">Temperature (optional)</label>
-                  <input type="number" step="0.1" class="form-input" id="temperature" name="temperature" placeholder="Use default" min="0" max="2" />
-                </div>
-
-                <div class="form-group">
-                  <label class="form-label" for="top_p">Top P (optional)</label>
-                  <input type="number" step="0.01" class="form-input" id="top_p" name="top_p" placeholder="Use default" min="0" max="1" />
-                </div>
-              </div>
-
               <div class="button-group">
                 <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save Settings</button>
@@ -805,8 +781,6 @@ function renderPromptCard(prompt: any): string {
   if (prompt.reasoning_effort) overrides.push(`Effort: ${prompt.reasoning_effort}`);
   if (prompt.text_verbosity) overrides.push(`Verbosity: ${prompt.text_verbosity}`);
   if (prompt.max_output_tokens) overrides.push(`Max Tokens: ${prompt.max_output_tokens}`);
-  if (prompt.temperature !== null && prompt.temperature !== undefined) overrides.push(`Temp: ${prompt.temperature}`);
-  if (prompt.top_p !== null && prompt.top_p !== undefined) overrides.push(`Top-P: ${prompt.top_p}`);
 
   const overridesText = overrides.length > 0 ? overrides.join(' • ') : 'Using all defaults';
 
