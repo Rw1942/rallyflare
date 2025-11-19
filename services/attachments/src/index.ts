@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 export interface Env {
-    // BUCKET: R2Bucket; // R2 disabled for POC
+    BUCKET: R2Bucket;
 }
 
 export default class AttachmentsService extends WorkerEntrypoint<Env> {
@@ -12,21 +12,30 @@ export default class AttachmentsService extends WorkerEntrypoint<Env> {
      * @param contentType The MIME type
      */
     async uploadAttachment(filename: string, contentBase64: string, contentType: string): Promise<{ key: string; size: number; url?: string }> {
-        console.log("Attachments: Uploading (STUBBED)", filename);
+        console.log("Attachments: Uploading", filename);
 
         try {
-            // Decode base64 to get size
+            // Decode base64
             const binaryString = atob(contentBase64);
-            const size = binaryString.length;
-            const key = `stub-${crypto.randomUUID()}-${filename}`;
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
 
-            // Stubbed upload - no R2 interaction
-            console.log("Attachments: Upload stubbed", key);
+            const key = `${crypto.randomUUID()}-${filename}`;
+
+            await this.env.BUCKET.put(key, bytes, {
+                httpMetadata: {
+                    contentType: contentType,
+                },
+            });
+
+            console.log("Attachments: Uploaded", key);
 
             return {
                 key,
-                size,
-                url: "https://example.com/stubbed-attachment"
+                size: bytes.length,
+                // url: `...` // If we had a public domain, we'd return it here
             };
 
         } catch (error) {
@@ -36,6 +45,6 @@ export default class AttachmentsService extends WorkerEntrypoint<Env> {
     }
 
     async fetch(request: Request): Promise<Response> {
-        return new Response("Attachments Service Running (Stubbed)");
+        return new Response("Attachments Service Running");
     }
 }
