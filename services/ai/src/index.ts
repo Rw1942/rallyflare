@@ -240,7 +240,19 @@ export default class AiService extends WorkerEntrypoint<Env> {
             }
 
             // Convert Markdown to HTML with inline styles
-            const replyHtml = await marked.parse(assistantMessage);
+            // Fallback to plain text with line breaks if marked fails
+            let replyHtml: string;
+            try {
+                replyHtml = await marked.parse(assistantMessage);
+            } catch (markdownError) {
+                console.warn("AI: Markdown parsing failed, using plain text fallback:", markdownError);
+                // Simple fallback: preserve line breaks and basic formatting
+                replyHtml = assistantMessage
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/\n/g, '<br>');
+            }
 
             return {
                 summary: assistantMessage.substring(0, 500),
