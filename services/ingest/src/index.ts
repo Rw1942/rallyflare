@@ -168,11 +168,11 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // 4. Get Settings: merge project defaults with email-specific overrides
     // Hierarchy: Email-specific → Project defaults → Hardcoded fallbacks
     const projectSettings = await env.DB.prepare(
-      "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, temperature, top_p, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+      "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default' LIMIT 1"
     ).first<ProjectSettings>();
     
     const emailSettings = await env.DB.prepare(
-      "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, temperature, top_p FROM email_settings WHERE email_address = ? LIMIT 1"
+      "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens FROM email_settings WHERE email_address = ? LIMIT 1"
     ).bind(rallyEmailAddress).first<EmailSettings>();
 
     const settings = mergeSettings(projectSettings, emailSettings);
@@ -215,8 +215,6 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       reasoningEffort: settings.reasoningEffort,
       textVerbosity: settings.textVerbosity,
       maxOutputTokens: settings.maxOutputTokens,
-      temperature: settings.temperature,
-      topP: settings.topP,
       conversationHistory,
       processedTextContent: textContent // Pass the processed text with attachment list
     };
@@ -297,7 +295,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?,
       attachment_time_ms = ?, mailer_time_ms = ?, ingest_time_ms = ?, openai_upload_time_ms = ?, cost_dollars = ?,
       reasoning_tokens = ?, cached_tokens = ?, model = ?, service_tier = ?, reasoning_effort = ?,
-      temperature = ?, text_verbosity = ?
+      text_verbosity = ?
       WHERE id = ?
     `).bind(
       aiResponse.summary, aiResponse.reply, aiResponse.tokensInput || null, aiResponse.tokensOutput || null,
@@ -305,7 +303,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       attachmentTimeMs, mailerTimeMs, ingestTimeMs, openaiUploadTimeMs, costDollars,
       aiResponse.reasoningTokens || null, aiResponse.cachedTokens || null, aiRequest.model,
       aiResponse.serviceTier || null, aiResponse.reasoningEffort || null,
-      aiResponse.temperature || null, aiResponse.textVerbosity || null,
+      aiResponse.textVerbosity || null,
       internalId
     ).run();
 
@@ -387,7 +385,7 @@ async function getMessageDetail(env: Env, id: string) {
 }
 
 async function getSettings(env: Env) {
-  const settings = await env.DB.prepare("SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, temperature, top_p, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default'").first();
+  const settings = await env.DB.prepare("SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default'").first();
   const status = await getPostmarkInboundStatus(env);
   const statusData = await status.json();
   return new Response(renderSettings(settings as any, statusData as any), { headers: { "content-type": "text/html" } });
@@ -395,8 +393,8 @@ async function getSettings(env: Env) {
 
 async function updateSettings(request: Request, env: Env) {
   const data = await request.json() as any;
-  await env.DB.prepare("UPDATE project_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ?, temperature = ?, top_p = ?, cost_input_per_1m = ?, cost_output_per_1m = ? WHERE project_slug = 'default'")
-    .bind(data.system_prompt, data.model, data.reasoning_effort, data.text_verbosity, data.max_output_tokens, data.temperature, data.top_p, data.cost_input_per_1m, data.cost_output_per_1m).run();
+  await env.DB.prepare("UPDATE project_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ?, cost_input_per_1m = ?, cost_output_per_1m = ? WHERE project_slug = 'default'")
+    .bind(data.system_prompt, data.model, data.reasoning_effort, data.text_verbosity, data.max_output_tokens, data.cost_input_per_1m, data.cost_output_per_1m).run();
   return new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } });
 }
 
@@ -413,16 +411,14 @@ async function getEmailPrompts(env: Env) {
 async function createEmailPrompt(request: Request, env: Env) {
   const data = await request.json() as any;
   await env.DB.prepare(
-    "INSERT INTO email_settings (email_address, system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, temperature, top_p) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO email_settings (email_address, system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens) VALUES (?, ?, ?, ?, ?, ?)"
   ).bind(
     data.email_address, 
     data.system_prompt || null,
     data.model || null,
     data.reasoning_effort || null,
     data.text_verbosity || null,
-    data.max_output_tokens || null,
-    data.temperature || null,
-    data.top_p || null
+    data.max_output_tokens || null
   ).run();
   return new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } });
 }
@@ -430,7 +426,7 @@ async function createEmailPrompt(request: Request, env: Env) {
 async function updateEmailPrompt(request: Request, env: Env, id: string) {
   const data = await request.json() as any;
   await env.DB.prepare(
-    "UPDATE email_settings SET email_address = ?, system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ?, temperature = ?, top_p = ? WHERE id = ?"
+    "UPDATE email_settings SET email_address = ?, system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ? WHERE id = ?"
   ).bind(
     data.email_address,
     data.system_prompt || null,
@@ -438,8 +434,6 @@ async function updateEmailPrompt(request: Request, env: Env, id: string) {
     data.reasoning_effort || null,
     data.text_verbosity || null,
     data.max_output_tokens || null,
-    data.temperature || null,
-    data.top_p || null,
     id
   ).run();
   return new Response(JSON.stringify({ success: true }), { headers: { "content-type": "application/json" } });

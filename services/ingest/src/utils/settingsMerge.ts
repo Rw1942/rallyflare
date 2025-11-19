@@ -13,8 +13,6 @@ export interface ProjectSettings {
   reasoning_effort: string;
   text_verbosity: string;
   max_output_tokens: number;
-  temperature: number;
-  top_p: number;
   cost_input_per_1m: number;
   cost_output_per_1m: number;
 }
@@ -25,8 +23,6 @@ export interface EmailSettings {
   reasoning_effort?: string | null;
   text_verbosity?: string | null;
   max_output_tokens?: number | null;
-  temperature?: number | null;
-  top_p?: number | null;
 }
 
 export interface MergedSettings {
@@ -35,8 +31,6 @@ export interface MergedSettings {
   reasoningEffort: string;
   textVerbosity: string;
   maxOutputTokens: number;
-  temperature: number;
-  topP: number;
   costInputPer1m: number;
   costOutputPer1m: number;
 }
@@ -57,8 +51,6 @@ export function mergeSettings(
     reasoning_effort: 'medium',
     text_verbosity: 'low',
     max_output_tokens: 1000,
-    temperature: 1.0,
-    top_p: 1.0,
     cost_input_per_1m: 2.50,
     cost_output_per_1m: 10.00
   };
@@ -73,8 +65,6 @@ export function mergeSettings(
     reasoningEffort: emailSettings?.reasoning_effort ?? base.reasoning_effort,
     textVerbosity: emailSettings?.text_verbosity ?? base.text_verbosity,
     maxOutputTokens: emailSettings?.max_output_tokens ?? base.max_output_tokens,
-    temperature: emailSettings?.temperature ?? base.temperature,
-    topP: emailSettings?.top_p ?? base.top_p,
     costInputPer1m: base.cost_input_per_1m,
     costOutputPer1m: base.cost_output_per_1m
   };

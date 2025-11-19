@@ -350,8 +350,6 @@ export function renderSettings(settings: {
   reasoning_effort: "minimal" | "low" | "medium" | "high";
   text_verbosity: "low" | "medium" | "high";
   max_output_tokens: number;
-  temperature?: number;
-  top_p?: number;
   cost_input_per_1m?: number;
   cost_output_per_1m?: number;
 } | null, postmarkStatus: PostmarkStatus) {
@@ -360,8 +358,6 @@ export function renderSettings(settings: {
   const currentReasoningEffort = settings?.reasoning_effort || 'low';
   const currentTextVerbosity = settings?.text_verbosity || 'low';
   const currentMaxOutputTokens = settings?.max_output_tokens || 500;
-  const currentTemperature = settings?.temperature ?? 1.0;
-  const currentTopP = settings?.top_p ?? 1.0;
   const currentCostInput = settings?.cost_input_per_1m ?? 2.50;
   const currentCostOutput = settings?.cost_output_per_1m ?? 10.00;
 
@@ -677,8 +673,6 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
             document.getElementById('reasoning_effort').value = '';
             document.getElementById('text_verbosity').value = '';
             document.getElementById('max_output_tokens').value = '';
-            document.getElementById('temperature').value = '';
-            document.getElementById('top_p').value = '';
             document.getElementById('promptModal').classList.add('show');
           }
           
@@ -693,8 +687,6 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
             document.getElementById('reasoning_effort').value = prompt.reasoning_effort || '';
             document.getElementById('text_verbosity').value = prompt.text_verbosity || '';
             document.getElementById('max_output_tokens').value = prompt.max_output_tokens || '';
-            document.getElementById('temperature').value = prompt.temperature || '';
-            document.getElementById('top_p').value = prompt.top_p || '';
             document.getElementById('promptModal').classList.add('show');
           }
           
@@ -734,9 +726,7 @@ export function renderEmailPrompts(emailPrompts: any[] = []) {
               model: formData.get('model') || null,
               reasoning_effort: formData.get('reasoning_effort') || null,
               text_verbosity: formData.get('text_verbosity') || null,
-              max_output_tokens: formData.get('max_output_tokens') ? parseInt(formData.get('max_output_tokens')) : null,
-              temperature: formData.get('temperature') ? parseFloat(formData.get('temperature')) : null,
-              top_p: formData.get('top_p') ? parseFloat(formData.get('top_p')) : null
+              max_output_tokens: formData.get('max_output_tokens') ? parseInt(formData.get('max_output_tokens')) : null
             };
             try {
               const url = currentPromptId ? \`/email-prompts/\${currentPromptId}\` : '/email-prompts';
