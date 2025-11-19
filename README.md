@@ -212,7 +212,7 @@ See [POSTMARK_SETUP.md](./POSTMARK_SETUP.md) for detailed Postmark configuration
 | Component | Purpose |
 |-----------|---------|
 | **Ingest Service** | Main entry point. Handles webhooks, dashboard, D1 storage, and orchestration. Webhook: `/postmark/inbound` |
-| **AI Service** | Dedicated worker for OpenAI GPT-5.1 via native REST API. Supports file attachments via OpenAI Files API + Responses API. |
+| **AI Service** | Dedicated worker for OpenAI GPT-5.1 via native REST API. Supports file attachments via OpenAI Files API + Responses API. **Note:** Uses `v1/responses` endpoint exclusively. |
 | **Mailer Service** | Dedicated worker for sending emails via Postmark. |
 | **Attachments Service** | Handles file uploads to Cloudflare R2. |
 | **Cloudflare D1** | Stores messages, participants, and metadata. |

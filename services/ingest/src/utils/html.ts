@@ -116,6 +116,9 @@ export function appendAttachments(text: string, attachments: PostmarkInboundMess
   return `${text}\n\n[Attachments]\n${attachmentList}`;
 }
 
+/**
+ * Helper to format bytes into human-readable string (KB, MB, etc.)
+ */
 function formatBytes(bytes: number, decimals = 1) {
   if (bytes === 0) return '0 Bytes';
   const k = 1024;

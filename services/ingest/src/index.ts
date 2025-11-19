@@ -93,7 +93,9 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     // 1. Store Message in D1
     const rallyEmailAddress = extractRallyEmailAddress(postmarkData);
 
-    // Determine text content: use flattened HTML if images are present, otherwise prefer standard TextBody
+    // Determine text content: use flattened HTML if images are present, otherwise prefer standard TextBody.
+    // We prefer TextBody because it's usually cleaner, but we need flattenHtml when images are involved
+    // to preserve the [Image] markers in their correct context within the conversation.
     let textContent = postmarkData.TextBody || "";
     if (hasImages(postmarkData) || !textContent) {
       textContent = flattenHtml(postmarkData.HtmlBody || "", postmarkData.Attachments || []);
@@ -201,7 +203,8 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       reasoningEffort: defaultSettings?.reasoning_effort || "medium",
       textVerbosity: defaultSettings?.text_verbosity || "low",
       maxOutputTokens: defaultSettings?.max_output_tokens || 1000,
-      conversationHistory
+      conversationHistory,
+      processedTextContent: textContent // Pass the processed text with attachment list
     };
 
     const aiResponse = await env.AI.generateReply(aiRequest);
@@ -218,7 +221,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
         textBody: aiResponse.reply,
-        htmlBody: aiResponse.reply.replace(/\n/g, '<br>'),
+        htmlBody: aiResponse.replyHtml || aiResponse.reply.replace(/\n/g, '<br>'),
         replyTo: replyToAddress,
         inReplyTo: postmarkData.MessageID,
         references: referencesValue,

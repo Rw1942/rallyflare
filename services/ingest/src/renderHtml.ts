@@ -410,7 +410,7 @@ export function renderSettings(settings: {
               <div class="form-group">
                 <label class="form-label" for="max_output_tokens">Max Output Tokens</label>
                 <span class="form-help">Limits the length of the AI's reply. Lower values produce shorter responses. (Default: 500)</span>
-                <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" value="${currentMaxOutputTokens}" min="50" max="4000" required>
+                <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" value="${currentMaxOutputTokens}" min="50" max="128000" required>
               </div>
               <div class="button-group">
                 <button type="submit" class="btn btn-primary">Save Settings</button>

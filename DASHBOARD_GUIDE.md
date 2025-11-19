@@ -137,8 +137,8 @@ Planned features for upcoming releases:
 
 2. **AI Prompts Configuration**
    - Edit system prompts
-   - Choose AI models
-   - Adjust temperature and parameters
+   - Configure GPT-5.1 settings (reasoning effort, verbosity)
+   - Adjust max output tokens
    - Test prompts with sample emails
 
 3. **Search & Filters**

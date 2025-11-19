@@ -74,11 +74,13 @@ export interface AiRequest {
         receivedAt: string;
     }[];
     requestContext?: any;
+    processedTextContent?: string; // The processed text body (flattened HTML + attachment list)
 }
 
 export interface AiResponse {
     summary: string;
     reply: string;
+    replyHtml?: string;
     tokensInput?: number;
     tokensOutput?: number;
     aiResponseTimeMs?: number;

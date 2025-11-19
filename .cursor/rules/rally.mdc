@@ -50,7 +50,7 @@ Think of Email2ChatGPT as “reply-all automation with brains.” Users never lo
 | Cloudflare R2        | Storage for large attachments (optional)                          | Store pointer in D1        |
 | Cloudflare Pages     | Minimal admin console (React/Vite SPA)                            | React/Vite SPA             |
 | Postmark             | Inbound + Outbound email                                          | JSON inbound, API outbound |
-| OpenAI API           | LLM processing, model configurable in admin console               | Configurable model         |
+| OpenAI API           | GPT-5.1 processing via Responses API                | GPT-5.1 only               |
 
 ---
 
@@ -272,7 +272,7 @@ User Journey Focus: Comments should explain code in terms of email sender/receiv
 - Cloudflare D1: SQL DB for messages, participants, project settings. Use prepared statements; keep schemas lightweight.
 - Cloudflare R2 (Optional): Attachment storage; only if files > threshold.
 - Cloudflare Pages: React/Vite SPA for admin console (message view, re-trigger AI, resend emails, settings).
-- Integrations: Postmark for inbound/outbound email; OpenAI for summarization/processing.
+- Integrations: Postmark for inbound/outbound email; OpenAI (GPT-5.1) for summarization/processing.
 - Patterns: Modular Worker scripts (e.g., handlers/email.js, services/ai.js). Use async/await; error handling with try-catch and logging to console/D1.
 
 **File Structure Guidelines:**

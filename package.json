@@ -24,9 +24,9 @@
     "publish": true
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240512.0",
     "typescript": "5.8.3",
-    "wrangler": "4.21.x",
-    "@cloudflare/workers-types": "^4.20240512.0"
+    "wrangler": "4.21.x"
   },
   "scripts": {
     "cf-typegen": "wrangler types",
@@ -37,6 +37,7 @@
     "seedLocalD1": "wrangler d1 migrations apply DB --local"
   },
   "dependencies": {
+    "marked": "^17.0.0",
     "openai": "^6.8.1"
   }
 }

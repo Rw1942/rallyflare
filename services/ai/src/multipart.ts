@@ -4,7 +4,6 @@ export function buildMultipart(parts: Record<string, any>) {
 
   for (const [name, value] of Object.entries(parts)) {
     if (Array.isArray(value)) {
-      // Handle arrays (e.g. multiple files)
       for (const item of value) {
         appendPart(chunks, boundary, name, item);
       }
@@ -13,7 +12,7 @@ export function buildMultipart(parts: Record<string, any>) {
     }
   }
 
-  chunks.push(`--${boundary}--`, "");
+  chunks.push(`--${boundary}--\r\n`);
 
   return {
     body: new Blob(chunks),
@@ -22,20 +21,22 @@ export function buildMultipart(parts: Record<string, any>) {
 }
 
 function appendPart(chunks: (string | Blob | Uint8Array)[], boundary: string, name: string, value: any) {
-  chunks.push(`--${boundary}`);
+  chunks.push(`--${boundary}\r\n`);
 
   if (value instanceof File) {
     chunks.push(
-      `Content-Disposition: form-data; name="${name}"; filename="${value.name}"`,
-      `Content-Type: ${value.type || "application/octet-stream"}`,
-      "",
-      value
+      `Content-Disposition: form-data; name="${name}"; filename="${value.name}"\r\n`,
+      `Content-Type: ${value.type || "application/octet-stream"}\r\n`,
+      "\r\n",
+      value,
+      "\r\n"
     );
   } else {
     chunks.push(
-      `Content-Disposition: form-data; name="${name}"`,
-      "",
-      typeof value === "string" ? value : JSON.stringify(value)
+      `Content-Disposition: form-data; name="${name}"\r\n`,
+      "\r\n",
+      typeof value === "string" ? value : JSON.stringify(value),
+      "\r\n"
     );
   }
 }
