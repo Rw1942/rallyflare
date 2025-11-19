@@ -11,44 +11,44 @@ export interface Env {
 const renderer = new marked.Renderer();
 
 // Override heading to add styles
-renderer.heading = (text, depth) => {
+renderer.heading = ({ text, depth }) => {
   const sizes = ["24px", "20px", "18px", "16px", "14px", "12px"];
   const size = sizes[depth - 1] || "16px";
   return `<h${depth} style="font-family: sans-serif; color: #333; font-size: ${size}; margin-top: 20px; margin-bottom: 10px;">${text}</h${depth}>`;
 };
 
 // Override link to add styles
-renderer.link = (href, title, text) => {
+renderer.link = ({ href, title, text }) => {
   return `<a href="${href}" title="${title || ''}" style="color: #007bff; text-decoration: none;">${text}</a>`;
 };
 
 // Override paragraph to add styles
-renderer.paragraph = (text) => {
+renderer.paragraph = ({ text }) => {
   return `<p style="font-family: sans-serif; color: #333; line-height: 1.6; margin-bottom: 15px;">${text}</p>`;
 };
 
 // Override list to add styles
-renderer.list = (body, ordered) => {
+renderer.list = ({ body, ordered }) => {
   const tag = ordered ? "ol" : "ul";
   return `<${tag} style="font-family: sans-serif; color: #333; padding-left: 20px; margin-bottom: 15px;">${body}</${tag}>`;
 };
 
-renderer.listitem = (text) => {
+renderer.listitem = ({ text }) => {
   return `<li style="margin-bottom: 5px;">${text}</li>`;
 };
 
 // Override code block to add styles
-renderer.code = (text, lang) => {
+renderer.code = ({ text, lang }) => {
   return `<pre style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: monospace; font-size: 13px; color: #333; margin-bottom: 15px;"><code>${text}</code></pre>`;
 };
 
 // Override codespan to add styles
-renderer.codespan = (text) => {
+renderer.codespan = ({ text }) => {
   return `<code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-family: monospace; font-size: 13px; color: #d63384;">${text}</code>`;
 };
 
 // Override blockquote to add styles
-renderer.blockquote = (text) => {
+renderer.blockquote = ({ text }) => {
   return `<blockquote style="border-left: 4px solid #ccc; margin: 0; padding-left: 15px; color: #666; font-style: italic; margin-bottom: 15px;">${text}</blockquote>`;
 };
 
