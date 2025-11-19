@@ -2,6 +2,7 @@ import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage
 import { PostmarkInboundMessage, AiRequest, EmailReply } from "shared/types";
 import { hasImages, flattenHtml, appendAttachments, calculateCost } from "./utils/index";
 import { generateEmailFooter } from "./utils/footer";
+import { formatForEmail } from "./utils/emailFormatter";
 
 import type MailerService from "../../mailer/src/index";
 import type AiService from "../../ai/src/index";
@@ -246,12 +247,15 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
         cost
       );
 
+      // Format AI response for email (auto-detects plain text, markdown, or HTML)
+      const formattedHtml = formatForEmail(aiResponse.reply);
+      
       const emailReply: EmailReply = {
         from: replyToAddress,
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
         textBody: aiResponse.reply + footer.text,
-        htmlBody: aiResponse.reply.replace(/\n/g, '<br>') + footer.html,
+        htmlBody: formattedHtml + footer.html,
         replyTo: replyToAddress,
         inReplyTo: postmarkData.MessageID,
         references: referencesValue,
