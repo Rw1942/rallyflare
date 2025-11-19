@@ -1,6 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { AiRequest, AiResponse } from "shared/types";
-import OpenAI from "openai";
+import { buildMultipart } from "./multipart";
 
 export interface Env {
     OPENAI_API_KEY: string;
@@ -14,22 +14,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
         console.log("AI: Generating reply for message", request.messageId);
 
         try {
-            // --- Check for Attachments (Strict Fail) ---
-            // As per user rule: "Just fail but reply there was a failure to the user"
-            if (request.postmarkData.Attachments && request.postmarkData.Attachments.length > 0) {
-                console.log("AI: Attachments detected. Aborting as GPT-5.1 text-only mode cannot process them.");
-                return {
-                    summary: "Failed: Attachments detected but not supported.",
-                    reply: "I received your email, but it contains attachments. I am currently unable to process files or images. Please resend your request as text only.",
-                    aiResponseTimeMs: 0,
-                };
-            }
-
-            const openai = new OpenAI({
-                apiKey: this.env.OPENAI_API_KEY,
-            });
-
-            // Build history string
+            // 1. Build Prompt / History
             let historyStr = "";
             request.conversationHistory.forEach((msg) => {
                 if (msg.role === "user") {
@@ -39,41 +24,84 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 }
             });
 
-            // Get current email content
             let emailContent = request.postmarkData.TextBody || "(No body content)";
             const MAX_CONTENT_LENGTH = 50000;
             if (emailContent.length > MAX_CONTENT_LENGTH) {
                 emailContent = emailContent.substring(0, MAX_CONTENT_LENGTH) + "\n\n[... truncated ...]";
             }
 
-            // Build prompt
-            let input = `${request.systemPrompt}\n\nConversation History:${historyStr}\n\nCurrent Email:\nFrom: ${request.postmarkData.FromFull?.Name} <${request.postmarkData.FromFull?.Email}>\nSubject: ${request.postmarkData.Subject}\n\n${emailContent}`;
+            let prompt = `${request.systemPrompt}\n\nConversation History:${historyStr}\n\nCurrent Email:\nFrom: ${request.postmarkData.FromFull?.Name} <${request.postmarkData.FromFull?.Email}>\nSubject: ${request.postmarkData.Subject}\n\n${emailContent}`;
 
-            // Request context
             if (request.requestContext) {
-                input += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
+                prompt += `\n\n---\nREQUEST CONTEXT:\n${JSON.stringify(request.requestContext)}`;
+            }
+
+            // 2. Prepare Request Body (JSON or Multipart)
+            let body: any;
+            let headers: Record<string, string> = {
+                "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`
+            };
+
+            const payload = {
+                model: "gpt-5.1",
+                input: [{ role: "user", content: prompt }],
+                reasoning: { effort: "low" },
+                text: { verbosity: "low" },
+                max_output_tokens: 500,
+            };
+
+            // Check for Attachments
+            // We will take the FIRST attachment if available, to keep it simple per instructions.
+            const attachment = request.postmarkData.Attachments?.[0];
+
+            if (attachment) {
+                console.log(`AI: Processing attachment: ${attachment.Name}`);
+                
+                // Convert Base64 to Uint8Array
+                const binaryString = atob(attachment.Content);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                
+                // Create File object (standard in Workers)
+                const file = new File([bytes], attachment.Name, {
+                    type: attachment.ContentType
+                });
+
+                // Use multipart helper
+                const { body: multipartBody, boundary } = buildMultipart({
+                    ...payload,
+                    file // Attach the file
+                });
+
+                body = multipartBody;
+                headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
+            } else {
+                // Standard JSON request
+                body = JSON.stringify(payload);
+                headers["Content-Type"] = "application/json";
             }
 
             const aiStartTime = Date.now();
 
-            // Using GPT-5.1 via Responses API as per strict user rule
-            // Note: 'responses' is a custom/preview API endpoint structure
-            const response = await (openai as any).responses.create({
-                model: "gpt5.1",
-                input,
-                reasoning: { effort: "low" },
-                text: { verbosity: "low" },
-                max_output_tokens: 500,
+            // 3. Call OpenAI API via REST (gpt-5.1)
+            const resp = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                headers,
+                body
             });
 
+            if (!resp.ok) {
+                const errorText = await resp.text();
+                throw new Error(`OpenAI API Error: ${resp.status} - ${errorText}`);
+            }
+
+            const json = await resp.json() as any;
             const aiEndTime = Date.now();
             const aiResponseTimeMs = aiEndTime - aiStartTime;
 
-            // Handle Responses API output structure
-            const assistantMessage = 
-                response.output_text ?? 
-                response.output?.map((p: any) => p.content?.map((c: any) => c.text || "").join("")).join("") ?? 
-                "";
+            const assistantMessage = json.output_text || "";
 
             if (!assistantMessage) {
                 throw new Error("No valid response from OpenAI");
@@ -82,10 +110,10 @@ export default class AiService extends WorkerEntrypoint<Env> {
             return {
                 summary: assistantMessage.substring(0, 500),
                 reply: assistantMessage,
-                tokensInput: response.usage?.input_tokens,
-                tokensOutput: response.usage?.output_tokens,
+                tokensInput: json.usage?.input_tokens,
+                tokensOutput: json.usage?.output_tokens,
                 aiResponseTimeMs,
-                openaiResponseId: response.id,
+                openaiResponseId: json.id,
             };
 
         } catch (error) {
