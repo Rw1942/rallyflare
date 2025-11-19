@@ -38,9 +38,10 @@ export function generateEmailFooter(
     `\n\nAI Usage: $${costInDollars.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)`;
 
   // HTML version - simple table for maximum email client compatibility
+  // Wrapped in div to avoid loose br tags that Postmark might strip
   const html = `
-<br><br>
-<table style="margin-top: 20px; padding-top: 12px; border-top: 1px solid #e0e0e0; font-family: Arial, sans-serif; font-size: 11px; color: #888888; width: 100%;">
+<div style="margin-top: 24px;">
+<table style="padding-top: 12px; border-top: 1px solid #e0e0e0; font-family: Arial, sans-serif; font-size: 11px; color: #888888; width: 100%;">
   <tr>
     <td colspan="2" style="padding-bottom: 8px; font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</td>
   </tr>
@@ -49,6 +50,7 @@ export function generateEmailFooter(
     <td colspan="2" style="padding-top: 8px; font-weight: 600; color: #666666;">AI Usage: <span style="font-weight: 400; color: #888888;">$${costInDollars.toFixed(4)} (read ${inputTokens.toLocaleString()} tokens, generated ${outputTokens.toLocaleString()} tokens)</span></td>
   </tr>
 </table>
+</div>
 `;
 
   return { text, html };

@@ -321,21 +321,40 @@ Configure in Settings page:
 - Text verbosity: low, medium, high
 - Cost per 1M tokens (auto-populated based on model selection)
 
-### Email Formatting
+### Email Formatting Architecture
 
-Rally intelligently handles GPT-5.1 responses in any format:
+Rally uses a **clean template-based system** to assemble outbound emails:
 
-**Auto-detection logic:**
-1. Scans for HTML tags (`<div>`, `<p>`) → uses as-is
-2. Scans for markdown patterns (`#`, `**`, `-`, `` ` ``) → converts to HTML
-3. Falls back to plain text → wraps with preserved formatting
+**Three-layer approach:**
 
-**Markdown support:**
-- Headers, bold, italic, code blocks, inline code
-- Links, bullet lists, numbered lists
-- All converted to inline-styled HTML for email compatibility
+1. **emailFormatter.ts** - Content formatting
+   - Auto-detects plain text, markdown, or HTML
+   - Converts markdown to email-safe HTML with inline styles
+   - Handles headers, bold, italic, code blocks, links, lists, tables
+   - Custom regex-based parser (~100 lines, no dependencies)
 
-**No external libraries:** Custom regex-based parser (~100 lines) in `utils/emailFormatter.ts`
+2. **footer.ts** - Metrics footer
+   - Generates processing transparency footer (text + HTML)
+   - Shows timing breakdown: Ingest → R2 → OpenAI → AI → Send
+   - Displays token usage and cost in user-friendly format
+
+3. **emailTemplate.ts** - Assembly layer ⭐ NEW
+   - `buildEmailWithFooter()` - Assembles AI response + footer in proper email container
+   - `buildErrorEmail()` - Error emails with consistent formatting
+   - `buildSimpleEmail()` - System messages (config errors, etc.)
+   - Ensures all HTML is wrapped in proper containers for email client compatibility
+   - Single source of truth for email structure
+
+**Why this works:**
+- Separation of concerns: formatting, metrics, and assembly are independent
+- Footer can't get stripped (wrapped in `<div>` container, not loose `<br>` tags)
+- All email HTML flows through one template builder
+- Easy to test and modify each layer independently
+
+**Files:**
+- `services/ingest/src/utils/emailFormatter.ts` - Content conversion
+- `services/ingest/src/utils/footer.ts` - Footer generation
+- `services/ingest/src/utils/emailTemplate.ts` - Email assembly
 
 ## License
 

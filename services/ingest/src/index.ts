@@ -1,8 +1,7 @@
 import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
 import { PostmarkInboundMessage, AiRequest, EmailReply } from "shared/types";
 import { hasImages, flattenHtml, appendAttachments, calculateCost } from "./utils/index";
-import { generateEmailFooter } from "./utils/footer";
-import { formatForEmail } from "./utils/emailFormatter";
+import { buildEmailWithFooter, buildErrorEmail, buildSimpleEmail } from "./utils/emailTemplate";
 
 import type MailerService from "../../mailer/src/index";
 import type AiService from "../../ai/src/index";
@@ -179,12 +178,16 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
+      const { textBody, htmlBody } = buildSimpleEmail(
+        "Rally is currently not configured to handle this request. Please contact the administrator to set up the system prompt."
+      );
+
       const errorReply: EmailReply = {
         from: replyToAddress,
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
-        textBody: "Rally is currently not configured to handle this request. Please contact the administrator to set up the system prompt.",
-        htmlBody: "<p>Rally is currently not configured to handle this request. Please contact the administrator to set up the system prompt.</p>",
+        textBody,
+        htmlBody,
         replyTo: replyToAddress,
         inReplyTo: postmarkData.MessageID,
         references: referencesValue,
@@ -236,26 +239,24 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
         defaultSettings?.cost_output_per_1m ?? 10.00
       );
       
-      const footer = generateEmailFooter(
-        totalTimeSoFar,
-        ingestTime,
+      // Build email with template (handles formatting + footer + structure)
+      const { textBody, htmlBody } = buildEmailWithFooter(aiResponse.reply, {
+        totalTimeMs: totalTimeSoFar,
+        ingestTimeMs: ingestTime,
         attachmentTimeMs,
-        openaiUploadTime,
-        aiTime,
+        openaiUploadTimeMs: openaiUploadTime,
+        aiTimeMs: aiTime,
         inputTokens,
         outputTokens,
-        cost
-      );
-
-      // Format AI response for email (auto-detects plain text, markdown, or HTML)
-      const formattedHtml = formatForEmail(aiResponse.reply);
+        costInDollars: cost
+      });
       
       const emailReply: EmailReply = {
         from: replyToAddress,
         to: postmarkData.FromFull?.Email || postmarkData.From,
         subject: `Re: ${postmarkData.Subject}`,
-        textBody: aiResponse.reply + footer.text,
-        htmlBody: formattedHtml + footer.html,
+        textBody,
+        htmlBody,
         replyTo: replyToAddress,
         inReplyTo: postmarkData.MessageID,
         references: referencesValue,
@@ -314,23 +315,17 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
             const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
             const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
             
-            const errorBody = `
-<p>Hi there,</p>
-<p>We ran into a little hiccup while processing your email. We're sorry about that!</p>
-<p>Here are the technical details of what happened:</p>
-<pre style="background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto;">
-${error instanceof Error ? error.message : String(error)}
-</pre>
-<p>Please try again later.</p>
-<p>Best,<br>The Rally Team</p>
-            `;
+            const { textBody, htmlBody } = buildErrorEmail(
+              "We encountered an error processing your email.",
+              error instanceof Error ? error.message : String(error)
+            );
 
             const errorReply: EmailReply = {
                 from: replyToAddress || "no-reply@rallyflare.com",
                 to: recipient,
                 subject: `Re: ${postmarkData.Subject || "Your Request"} - Error`,
-                textBody: `Hi there,\n\nWe ran into a little hiccup while processing your email. We're sorry about that!\n\nError details: ${error instanceof Error ? error.message : String(error)}\n\nPlease try again later.\n\nBest,\nThe Rally Team`,
-                htmlBody: errorBody,
+                textBody,
+                htmlBody,
                 replyTo: replyToAddress || "no-reply@rallyflare.com",
                 inReplyTo: postmarkData.MessageID,
                 references: referencesValue,
