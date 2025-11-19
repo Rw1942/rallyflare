@@ -238,12 +238,13 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
 <br><br>
 <hr>
 <p style="font-size: 12px; color: #888;">
-  <strong>Rally Processing:</strong> Ingest: ${ingestTime}ms | Attachments (R2): ${attachmentTimeMs}ms | OpenAI Upload: ${openaiUploadTime}ms | AI: ${aiTime}ms | Total: ${totalTimeSoFar}ms<br>
-  <strong>OpenAI Cost:</strong> Input: ${inputTokens} | Output: ${outputTokens} | Total: $${cost.toFixed(4)}
+  <strong>⚡ Processing Time:</strong> ${totalTimeSoFar}ms total (Received → Processing: ${ingestTime}ms | File Storage: ${attachmentTimeMs}ms | AI Upload: ${openaiUploadTime}ms | AI Thinking: ${aiTime}ms)<br>
+  <strong>💰 AI Cost:</strong> $${cost.toFixed(4)} (${inputTokens.toLocaleString()} tokens in, ${outputTokens.toLocaleString()} tokens out)
 </p>
 `;
       
-      const textFooter = `\n\n---\nRally Processing: Ingest: ${ingestTime}ms | Attachments (R2): ${attachmentTimeMs}ms | OpenAI Upload: ${openaiUploadTime}ms | AI: ${aiTime}ms | Total: ${totalTimeSoFar}ms\nOpenAI Cost: Input: ${inputTokens} | Output: ${outputTokens} | Total: $${cost.toFixed(4)}`;
+      const textFooter = `\n\n---\n⚡ Processing Time: ${totalTimeSoFar}ms total (Received → Processing: ${ingestTime}ms | File Storage: ${attachmentTimeMs}ms | AI Upload: ${openaiUploadTime}ms | AI Thinking: ${aiTime}ms)\n💰 AI Cost: $${cost.toFixed(4)} (${inputTokens.toLocaleString()} tokens in, ${outputTokens.toLocaleString()} tokens out)`;
+
 
       const emailReply: EmailReply = {
         from: replyToAddress, // Use the Rally email address that received the original message
