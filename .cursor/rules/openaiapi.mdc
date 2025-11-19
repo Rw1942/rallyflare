@@ -1,0 +1,264 @@
+---
+description: When using the OpenAI API
+alwaysApply: false
+---
+
+
+# Rally x GPT-5: Developer Guide (TypeScript, Responses API, Threaded)
+
+This is the minimal, practical guide for wiring GPT-5 into Rally using the **Responses API** with **TypeScript only**. Optimized for:
+
+* Email-style threaded conversations
+* Predictable latency + cost
+* Easy migration from Chat Completions
+
+All examples assume:
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY!,
+});
+```
+
+---
+
+## 1. Model basics for Rally
+
+Recommended defaults:
+
+* **Primary:** `gpt-5`
+* **Cheaper / high-volume:** `gpt-5-mini`
+* **Very simple classification / routing:** `gpt-5-nano`
+
+Key GPT-5 specifics: ([OpenAI Platform][1])
+
+* Use `reasoning.effort` instead of `temperature` / `top_p`.
+* Use `text.verbosity` to control answer length.
+* Use `max_output_tokens` to cap cost.
+* Requests with `temperature`, `top_p`, or `logprobs` will error.
+
+---
+
+## 2. Simple single-turn call
+
+Baseline POC: internal helper, summaries, drafts.
+
+```ts
+const response = await client.responses.create({
+  model: "gpt-5",
+  input: "Summarize this thread in 3 bullet points for an internal notes panel.",
+  reasoning: { effort: "low" },
+  text: { verbosity: "low" },
+  max_output_tokens: 300,
+});
+
+// Text helper:
+const output =
+  response.output_text ??
+  response.output?.map(p => p.content?.map(c => c.text || "").join("")).join("") ??
+  "";
+```
+
+Use cases in Rally:
+
+* TL;DR of an approval thread
+* Suggested reply to requester
+* Classifying thread type / urgency (using concise prompts + low verbosity)
+
+---
+
+## 3. Fast vs deep reasoning presets
+
+Use these presets instead of tuning temperatures.
+
+### Fast, low-latency (routing, labels, short answers)
+
+````ts
+const fast = await client.responses.create({
+  model: "gpt-5-mini",
+  input: "Classify this email into one of: BUDGET_REQUEST, HIRING_REQUEST, VENDOR, OTHER: ```...email body...```",
+  reasoning: { effort: "minimal" },
+  text: { verbosity: "low" },
+  max_output_tokens: 150,
+});
+````
+
+### Deep, careful (policy-heavy, risky, multi-step)
+
+```ts
+const deep = await client.responses.create({
+  model: "gpt-5",
+  input: `
+You are Rally's policy engine.
+Given this email thread, determine:
+1) Is all required approver coverage present?
+2) Are there conflicting instructions?
+3) Return a short JSON decision object.
+
+Thread:
+"""...thread text..."""
+  `.trim(),
+  reasoning: { effort: "high" },
+  text: { verbosity: "medium" },
+  max_output_tokens: 800,
+});
+```
+
+For most Rally flows:
+
+* Start with `minimal` / `low` reasoning.
+* Only bump to `medium`/`high` for important workflows that must be right.
+
+Docs background on reasoning, Responses API benefits. ([OpenAI Platform][2])
+
+---
+
+## 4. Threaded conversations (core for Rally)
+
+Goal: each Rally “request” (email chain) has stable context across turns without resending everything.
+
+Two simple patterns:
+
+### Pattern A: Store `previous_response_id` per Rally thread
+
+1. When you call `responses.create`, persist:
+
+   * `response.id`
+   * `rallyThreadId`
+2. On the next call for that Rally thread, send `previous_response_id`.
+
+**First message in a Rally thread:**
+
+```ts
+const first = await client.responses.create({
+  model: "gpt-5",
+  input: `
+You are Rally AI.
+Summarize and normalize this email chain into a structured internal note.
+
+Thread:
+"""...email chain text..."""
+  `.trim(),
+  reasoning: { effort: "low" },
+  text: { verbosity: "low" },
+  max_output_tokens: 400,
+});
+
+// Store mapping: rallyThreadId -> first.id
+```
+
+**Follow-up within the same Rally thread:**
+
+```ts
+const followup = await client.responses.create({
+  model: "gpt-5",
+  input: `
+Update the prior summary given this new reply.
+Return only the updated structured summary.
+New email:
+"""...latest email..."""
+  `.trim(),
+  previous_response_id: first.id, // loaded from storage
+  reasoning: { effort: "low" },
+  text: { verbosity: "low" },
+  max_output_tokens: 400,
+});
+```
+
+The Responses API reuses prior reasoning/context through `previous_response_id`, so you:
+
+* Avoid re-sending the full history every time.
+* Get better performance + lower token usage. ([OpenAI Cookbook][3])
+
+### Pattern B: Stateless, resend condensed history
+
+If you don’t want to store response IDs yet (very early POC):
+
+```ts
+const history = [
+  "[system] You are Rally AI. Maintain a single source of truth for this request.",
+  "[user] ...original request...",
+  "[assistant] ...your last summary...",
+  "[user] ...new email...",
+].join("\n\n");
+
+const res = await client.responses.create({
+  model: "gpt-5",
+  input: history + "\n\nUpdate the summary only.",
+  reasoning: { effort: "minimal" },
+  text: { verbosity: "low" },
+  max_output_tokens: 400,
+});
+```
+
+Use Pattern A as soon as you add persistence; it’s cheaper and scales better.
+
+---
+
+## 5. Migrating from Chat Completions (for Rally)
+
+If you already use:
+
+```ts
+openai.chat.completions.create({
+  model: "gpt-4.1",
+  messages: [...],
+  temperature: 0.2,
+});
+```
+
+Switch to:
+
+```ts
+const res = await client.responses.create({
+  model: "gpt-5-mini",
+  input: `
+You are Rally AI.
+${/* flatten your old messages into one structured input string */""}
+[user]: ...latest email content...
+  `.trim(),
+  reasoning: { effort: "minimal" },     // instead of temperature/top_p
+  text: { verbosity: "low" },
+  max_output_tokens: 400,
+});
+```
+
+Key changes:
+
+* Use `input` (string or array) instead of `messages`.
+* Drop `temperature`, `top_p`, `logprobs`.
+* Use `previous_response_id` for multi-turn instead of pushing a long `messages` array. ([OpenAI Platform][4])
+
+---
+
+## 6. Recommended Rally presets
+
+You can hard-code these in config for your POC:
+
+```ts
+export const RALLY_GPT5_DEFAULTS = {
+  summary: {
+    model: "gpt-5-mini",
+    reasoning: { effort: "minimal" as const },
+    text: { verbosity: "low" as const },
+    max_output_tokens: 300,
+  },
+  classification: {
+    model: "gpt-5-nano",
+    reasoning: { effort: "minimal" as const },
+    text: { verbosity: "low" as const },
+    max_output_tokens: 120,
+  },
+  criticalDecision: {
+    model: "gpt-5",
+    reasoning: { effort: "medium" as const },
+    text: { verbosity: "medium" as const },
+    max_output_tokens: 800,
+  },
+};
+```
+
+Use these presets when calling `responses.create` to keep behavior consistent across services.
+

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Rally receives inbound emails via Postmark webhooks. When someone sends an email to your Rally address (e.g., `requests@rallycollab.com`), Postmark will forward the email data to your Cloudflare Worker.
+Rally receives inbound emails via Postmark webhooks. When someone sends an email to your Rally address (e.g., `chat@email2chatgpt.com`), Postmark will forward the email data to your Cloudflare Worker.
 
 ## Setup Steps
 
@@ -116,15 +116,34 @@ Required secrets (set with `wrangler secret put`):
 # Your Postmark server token
 npx wrangler secret put POSTMARK_TOKEN
 
+# Webhook Basic Auth Username
+npx wrangler secret put WEBHOOK_USERNAME
+
+# Webhook Basic Auth Password
+npx wrangler secret put WEBHOOK_PASSWORD
+
 # Your OpenAI API key
 npx wrangler secret put OPENAI_API_KEY
 ```
 
 These should match what's in your `.dev.vars` for local development.
 
+### Webhook Security (HTTP Basic Authentication)
+
+To secure your Postmark inbound webhook, Rally now uses HTTP Basic Authentication. This means that when Postmark sends a webhook to your Worker, it will include an `Authorization` header with a username and password.
+
+**You must configure your Postmark Inbound Stream with the following:**
+
+1.  **Webhook URL**: `https://WEBHOOK_USERNAME:WEBHOOK_PASSWORD@your-subdomain.workers.dev/postmark/inbound`
+    *   Replace `WEBHOOK_USERNAME` and `WEBHOOK_PASSWORD` with the actual username and password you set.
+    *   Replace `your-subdomain.workers.dev` with your Worker's deployed URL.
+2.  **Webhook Basic Auth Credentials**: Ensure the username and password in the URL match the `WEBHOOK_USERNAME` and `WEBHOOK_PASSWORD` environment variables set for your Worker.
+
+**Without correct Basic Authentication credentials, inbound emails will be rejected by the Worker.**
+
 ## API Endpoints
 
-- `POST /postmark/inbound` - Receives Postmark webhooks
+- `POST /postmark/inbound` - Receive inbound message JSON, store, call OpenAI
 - `GET /messages` - List all messages (JSON)
 - `GET /messages/:id` - Get message detail (JSON)
 - `GET /` - View recent messages (HTML)

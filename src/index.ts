@@ -1,4 +1,14 @@
 import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
+import OpenAI from "openai";
+
+export interface Env {
+  DB: D1Database;
+  POSTMARK_TOKEN: string;
+  OPENAI_API_KEY: string;
+  POSTMARK_URL: string;
+  WEBHOOK_USERNAME: string;
+  WEBHOOK_PASSWORD: string;
+}
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -206,10 +216,55 @@ function stripHtmlToText(html: string): string {
 }
 
 /**
+ * Convert plain text to HTML by replacing newlines with <br> tags
+ * Simple and reliable for email clients
+ */
+function textToHtml(text: string): string {
+  // Escape HTML to prevent injection
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  
+  // Replace newlines with <br> tags
+  return escaped.replace(/\n/g, '<br>');
+}
+
+/**
  * Handle Postmark inbound webhook
  * Postmark sends JSON payload with email data
+ * 
+ * Email tracking in D1:
+ * - For INBOUND messages:
+ *   - email_address: Rally address that received the email (e.g., chat@email2chatgpt.com)
+ *   - recipient_email: NULL (Rally is the recipient)
+ *   - from_email: User who sent the email
+ * 
+ * - For OUTBOUND messages (see sendReplyEmail):
+ *   - email_address: Rally address that sent the email (e.g., chat@email2chatgpt.com)
+ *   - recipient_email: User who received Rally's reply
+ *   - from_email: Rally address
  */
 async function handlePostmarkInbound(request: Request, env: Env): Promise<Response> {
+  // Implement HTTP Basic Auth
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader) {
+    return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Postmark Webhook"' } });
+  }
+
+  const [scheme, credentials] = authHeader.split(' ');
+  if (scheme !== 'Basic' || !credentials) {
+    return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Postmark Webhook"' } });
+  }
+
+  const decodedCredentials = atob(credentials);
+  const [username, password] = decodedCredentials.split(':');
+
+  if (username !== env.WEBHOOK_USERNAME || password !== env.WEBHOOK_PASSWORD) {
+    console.warn('Invalid webhook credentials provided.');
+    return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Postmark Webhook"' } });
+  }
+
   let internalId: string | null = null;
   try {
     const postmarkData = await request.json() as PostmarkInboundMessage;
@@ -247,6 +302,9 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     const ccList = postmarkData.CcFull || [];
 
     // Extract the Rally email address that received this message
+    // For inbound messages:
+    // - email_address: The Rally address that received the email (e.g., chat@email2chatgpt.com)
+    // - recipient_email: NULL (Rally is the recipient, already tracked in email_address)
     const rallyEmailAddress = postmarkData.OriginalRecipient || postmarkData.ToFull?.[0]?.Email || postmarkData.To;
 
     // Store message in D1
@@ -254,8 +312,8 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       INSERT INTO messages (
         id, received_at, subject, message_id, in_reply_to, references_header,
         from_name, from_email, raw_text, raw_html,
-        postmark_message_id, has_attachments, direction, email_address
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        postmark_message_id, has_attachments, direction, email_address, recipient_email
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       internalId,
       receivedAt,
@@ -271,7 +329,8 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       postmarkData.MessageID, // Store Postmark's original MessageID for auditing
       (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0,
       'inbound',
-      rallyEmailAddress
+      rallyEmailAddress, // Rally address that received this email
+      null // recipient_email is NULL for inbound (Rally is the recipient)
     ).run();
 
     // Log message stored
@@ -367,7 +426,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
     await env.DB.prepare(`
       UPDATE messages
       SET llm_summary = ?, llm_reply = ?, tokens_input = ?, tokens_output = ?, 
-          processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?
+          processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?
       WHERE id = ?
     `).bind(
       llmResponse.summary, 
@@ -377,6 +436,7 @@ async function handlePostmarkInbound(request: Request, env: Env): Promise<Respon
       processingTimeMs,
       llmResponse.aiResponseTimeMs || null,
       sentAt,
+      llmResponse.openaiResponseId || null,
       internalId
     ).run();
 
@@ -436,6 +496,7 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
   tokensOutput?: number;
   aiResponseTimeMs?: number;
   extractedData?: any;
+  openaiResponseId?: string; // Added for threading
 }> {
   try {
     // Get email-specific prompt first
@@ -444,34 +505,65 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
     ).bind(rallyEmailAddress).first();
 
     let systemPrompt: string;
-    let maxTokens: number;
+    let maxOutputTokens: number; // Changed from maxTokens
+    let model: string;
+    let reasoningEffort: "minimal" | "low" | "medium" | "high" | undefined;
+    let verbosity: "low" | "medium" | "high" | undefined;
+
     if (emailPromptResult?.system_prompt) {
       systemPrompt = emailPromptResult.system_prompt as string;
-      // Email-specific prompts don't currently support max_tokens, use default
+      // Email-specific prompts don't currently support max_output_tokens, use default
       const settingsResult = await env.DB.prepare(
-        "SELECT max_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1"
-      ).first<{ max_tokens: number }>();
-      maxTokens = settingsResult?.max_tokens || 500;
-      console.log(`Using email-specific prompt for ${rallyEmailAddress}, default max_tokens: ${maxTokens}`);
+        "SELECT max_output_tokens, model, reasoning_effort, text_verbosity FROM project_settings WHERE project_slug = 'default' LIMIT 1" // Changed column name
+      ).first<{ max_output_tokens: number; model: string; reasoning_effort: "minimal" | "low" | "medium" | "high"; text_verbosity: "low" | "medium" | "high"; }>();
+      maxOutputTokens = settingsResult?.max_output_tokens || 500; // Changed from maxTokens
+      model = settingsResult?.model || "gpt-5";
+      reasoningEffort = settingsResult?.reasoning_effort || "low";
+      verbosity = settingsResult?.text_verbosity || "low";
+      console.log(`Using email-specific prompt for ${rallyEmailAddress}, default max_output_tokens: ${maxOutputTokens}, model: ${model}, reasoning: ${reasoningEffort}, verbosity: ${verbosity}`);
     } else {
       // Fall back to default project settings
       const settingsResult = await env.DB.prepare(
         "SELECT * FROM project_settings WHERE project_slug = 'default' LIMIT 1"
-      ).first<{ system_prompt: string; max_tokens: number }>();
+      ).first<{ system_prompt: string; max_output_tokens: number; model: string; reasoning_effort: "minimal" | "low" | "medium" | "high"; text_verbosity: "low" | "medium" | "high"; }>(); // Changed column name
       systemPrompt = settingsResult?.system_prompt as string || "You are Rally, an intelligent email assistant.";
-      maxTokens = settingsResult?.max_tokens || 500;
-      console.log(`Using default prompt for ${rallyEmailAddress}, max_tokens: ${maxTokens}`);
+      maxOutputTokens = settingsResult?.max_output_tokens || 500; // Changed from maxTokens
+      model = settingsResult?.model || "gpt-5";
+      reasoningEffort = settingsResult?.reasoning_effort || "low";
+      verbosity = settingsResult?.text_verbosity || "low";
+      console.log(`Using default prompt for ${rallyEmailAddress}, max_output_tokens: ${maxOutputTokens}, model: ${model}, reasoning: ${reasoningEffort}, verbosity: ${verbosity}`);
+    }
+
+    // Get previous_response_id for threaded conversations
+    // First get the in_reply_to value for the current message
+    const currentMessage = await env.DB.prepare(
+      "SELECT in_reply_to FROM messages WHERE id = ?"
+    ).bind(messageId).first<{ in_reply_to: string | null }>();
+
+    let previousResponseId: string | undefined = undefined;
+    
+    // If this is a reply, look up the message it's replying to and get its openai_response_id
+    if (currentMessage?.in_reply_to) {
+      const previousMessage = await env.DB.prepare(
+        "SELECT openai_response_id FROM messages WHERE message_id = ? AND openai_response_id IS NOT NULL LIMIT 1"
+      ).bind(currentMessage.in_reply_to).first<{ openai_response_id: string }>();
+      
+      previousResponseId = previousMessage?.openai_response_id || undefined;
+      
+      console.log(`Threading context: in_reply_to=${currentMessage.in_reply_to}, found_previous_response_id=${!!previousResponseId}`);
+    } else {
+      console.log('No threading context: this appears to be a new conversation thread');
     }
 
     // Fetch thread history: Get up to 5 previous messages in the chain
     // Use recursive CTE to traverse the thread via in_reply_to
     const threadQuery = `
       WITH RECURSIVE thread_chain AS (
-        SELECT id, raw_text, llm_reply, direction, received_at, in_reply_to
+        SELECT id, raw_text, llm_reply, direction, received_at, in_reply_to, openai_response_id
         FROM messages
         WHERE id = ?
         UNION ALL
-        SELECT m.id, m.raw_text, m.llm_reply, m.direction, m.received_at, m.in_reply_to
+        SELECT m.id, m.raw_text, m.llm_reply, m.direction, m.received_at, m.in_reply_to, m.openai_response_id
         FROM messages m
         JOIN thread_chain tc ON m.id = tc.in_reply_to
       )
@@ -495,14 +587,8 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       }
     });
 
-    // Get current email content
-    let emailContent = postmarkData.StrippedTextReply || postmarkData.TextBody || "";
-    if (!emailContent.trim() && postmarkData.HtmlBody) {
-      emailContent = stripHtmlToText(postmarkData.HtmlBody);
-    }
-    if (!emailContent.trim()) {
-      emailContent = "(No body content)";
-    }
+    // Get current email content - use only the plain text body
+    let emailContent = postmarkData.TextBody || "(No body content)";
 
     // Truncate if too long
     const MAX_CONTENT_LENGTH = 50000;
@@ -529,46 +615,35 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       input += `\n\nProvide a brief summary and a helpful reply.`;
     }
 
-    // API parameters
-    const reasoningEffort = "low";
-    const verbosity = "low";
+    // Initialize OpenAI client
+    const openaiClient = new OpenAI({
+      apiKey: env.OPENAI_API_KEY,
+    });
 
-    const requestPayload = {
-      model: "gpt-5",
+    const requestPayload: OpenAI.Responses.ResponseCreateParams = {
+      model: model, // Use dynamic model
       input,
-      reasoning: { effort: reasoningEffort },
-      text: { verbosity: verbosity },
-      max_tokens: maxTokens,
+      reasoning: { effort: reasoningEffort }, // Use dynamic reasoning
+      text: { verbosity: verbosity }, // Use dynamic verbosity
+      max_output_tokens: maxOutputTokens, // Changed from max_tokens
+      previous_response_id: previousResponseId, // Include for threaded conversations
     };
 
     // Call OpenAI Responses API
     const aiStartTime = Date.now();
-    const openaiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestPayload),
-    });
-
-    if (!openaiResponse.ok) {
-      throw new Error(`OpenAI error: ${await openaiResponse.text()}`);
-    }
-
-    const data = await openaiResponse.json() as any;
+    const openaiResponse = await openaiClient.responses.create(requestPayload);
     const aiEndTime = Date.now();
     const aiResponseTimeMs = aiEndTime - aiStartTime;
 
     // Extract response - assuming output_text is the main content
-    const assistantMessage = data.output_text || data.output?.find((item: any) => item.type === "message")?.content?.[0]?.text || "";
+    const assistantMessage = openaiResponse.output_text || "";
 
     if (!assistantMessage) {
       throw new Error("No valid response from OpenAI");
     }
 
-    const tokensInput = data.usage?.input_tokens || data.usage?.prompt_tokens;
-    const tokensOutput = data.usage?.output_tokens || data.usage?.completion_tokens;
+    const tokensInput = openaiResponse.usage?.input_tokens;
+    const tokensOutput = openaiResponse.usage?.output_tokens;
 
     // Try to extract structured data if this is a response
     let extractedData = null;
@@ -576,6 +651,7 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       extractedData = extractStructuredData(assistantMessage, emailContent);
     }
 
+    // Return the response, and also the ID for subsequent threaded calls
     return {
       summary: assistantMessage.substring(0, 500),
       reply: assistantMessage,
@@ -583,13 +659,25 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
       tokensOutput,
       aiResponseTimeMs,
       extractedData,
+      openaiResponseId: openaiResponse.id, // Store this for threading
     };
 
-  } catch (error) {
-    console.error("OpenAI processing error:", error);
+  } catch (error: unknown) {
+    let errorMessage = "Unknown OpenAI error";
+    let replyForUser = "Thank you for your email. We've received it and will respond shortly.";
+
+    if (error instanceof OpenAI.APIError) {
+      errorMessage = `OpenAI API Error: ${error.status} - ${error.message} (x-request-id: ${error.headers['x-request-id']})`;
+      replyForUser = `Thank you for your email. We encountered an issue processing it with AI (${error.status}). We'll get back to you soon.`;
+    } else if (error instanceof Error) {
+      errorMessage = `OpenAI processing error: ${error.message}`;
+    }
+    
+    console.error(errorMessage, error);
+
     return {
-      summary: "Error processing with AI",
-      reply: "Thank you for your email. We've received it and will respond shortly.",
+      summary: `Error processing with AI: ${errorMessage.substring(0, 100)}...`,
+      reply: replyForUser,
     };
   }
 }
@@ -597,6 +685,13 @@ async function processWithOpenAI(env: Env, messageId: string, postmarkData: Post
 /**
  * Send reply email via Postmark
  * Returns the timestamp when the email was sent
+ * 
+ * Email tracking in D1 for OUTBOUND messages:
+ * - email_address: Rally address sending the reply (e.g., chat@email2chatgpt.com)
+ * - recipient_email: User's email who receives the reply (from originalMessage.FromFull.Email)
+ * - from_email: Rally address (same as email_address)
+ * - To header: Set to recipient_email (user who sent the original question)
+ * - ReplyTo header: Set to Rally address (so user's reply comes back to Rally)
  */
 async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage, replyBody: string, replyToMessageId: string, metrics?: {
   tokensInput?: number;
@@ -616,10 +711,7 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
     // This way, replies go back to that specific Rally inbox
     const replyToAddress = originalMessage.OriginalRecipient || originalMessage.ToFull?.[0]?.Email || originalMessage.To;
 
-    // Detect if the reply contains HTML (look for common HTML tags)
-    const isHtml = /<(p|div|br|h[1-6]|ul|ol|li|table|strong|em|a)\b[^>]*>/i.test(replyBody);
-    
-    // Add metrics to the reply body if available
+    // Add metrics footer if available (plain text format)
     let finalReplyBody = replyBody;
     if (metrics && (metrics.tokensInput || metrics.tokensOutput || metrics.processingTimeMs)) {
       const metricsText = [];
@@ -633,21 +725,19 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       }
       
       if (metricsText.length > 0) {
-        if (isHtml) {
-          finalReplyBody += `<br><br><small style="color: #666; font-size: 0.8em;">Rally Stats: ${metricsText.join(' • ')}</small>`;
-        } else {
-          finalReplyBody += `\n\nRally Stats: ${metricsText.join(' • ')}`;
-        }
+        finalReplyBody += `\n\n${'─'.repeat(40)}\nRally\n${metricsText.map(m => `• ${m}`).join('\n')}`;
       }
     }
     
-    // Prepare email body - if HTML, send both HTML and plain text versions
+    // Prepare email body
     const emailBody: any = {
-      From: "rally@rallycollab.com",
+      From: "email2chat <chat@email2chatgpt.com>",
       ReplyTo: replyToAddress,
       To: originalMessage.FromFull?.Email || originalMessage.From,
       Subject: `Re: ${originalMessage.Subject}`,
       MessageStream: "outbound",
+      TextBody: finalReplyBody,  // Send as plain text
+      HtmlBody: textToHtml(finalReplyBody),  // Also provide HTML version
       Headers: [
         {
           Name: "In-Reply-To",
@@ -660,14 +750,19 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       ],
     };
 
-    if (isHtml) {
-      // Send as HTML with plain text fallback
-      emailBody.HtmlBody = finalReplyBody;
-      emailBody.TextBody = stripHtmlToText(finalReplyBody);
-    } else {
-      // Send as plain text only
-      emailBody.TextBody = finalReplyBody;
-    }
+    console.log("Preparing to send reply email:", {
+      From: emailBody.From,
+      ReplyTo: emailBody.ReplyTo,
+      To: emailBody.To,
+      Subject: emailBody.Subject,
+      InReplyToHeader: originalMessage.MessageID,
+      ReferencesHeader: referencesValue,
+      originalMessageFrom: originalMessage.From,
+      originalMessageFromFullEmail: originalMessage.FromFull?.Email,
+      originalMessageOriginalRecipient: originalMessage.OriginalRecipient,
+      originalMessageToFullEmail: originalMessage.ToFull?.[0]?.Email,
+      originalMessageTo: originalMessage.To,
+    });
 
     const response = await fetch(env.POSTMARK_URL, {
       method: "POST",
@@ -692,16 +787,17 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
     // Store the outbound message in D1
     const outboundId = crypto.randomUUID();
     
-    // Get the email address from the original message
-    const originalEmailAddress = await env.DB.prepare(
-      "SELECT email_address FROM messages WHERE id = ?"
-    ).bind(replyToMessageId).first();
+    // Email tracking semantics:
+    // - email_address: The Rally address that sent this email (chat@email2chatgpt.com)
+    // - recipient_email: The user who received this reply (original sender)
+    const rallyEmailAddress = "chat@email2chatgpt.com";
+    const recipientEmail = originalMessage.FromFull?.Email || originalMessage.From;
 
     await env.DB.prepare(`
       INSERT INTO messages (
         id, sent_at, received_at, subject, message_id, in_reply_to,
-        from_name, from_email, raw_text, direction, reply_to_message_id, email_address
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        from_name, from_email, raw_text, direction, reply_to_message_id, email_address, recipient_email
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       outboundId,
       sentAt,
@@ -710,11 +806,12 @@ async function sendReplyEmail(env: Env, originalMessage: PostmarkInboundMessage,
       null, // Will be set by Postmark after sending
       originalMessage.MessageID,
       "Rally",
-      "rally@rallycollab.com",
+      rallyEmailAddress,
       finalReplyBody,
       'outbound',
       replyToMessageId,
-      originalEmailAddress?.email_address || null
+      rallyEmailAddress, // Rally address that sent the email
+      recipientEmail // User who received the reply
     ).run();
     
     // Track outbound interaction for the recipient
@@ -782,8 +879,8 @@ interface PostmarkStatus {
 
 async function getSettings(env: Env): Promise<Response> {
   const settings = await env.DB.prepare(
-    "SELECT system_prompt, max_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1"
-  ).first<{ system_prompt: string; max_tokens: number }>();
+    "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+  ).first<{ system_prompt: string; model: string; reasoning_effort: string; text_verbosity: string; max_output_tokens: number }>();
 
   // Get Postmark inbound status
   const postmarkStatusResponse = await getPostmarkInboundStatus(env);
@@ -801,10 +898,15 @@ async function getSettings(env: Env): Promise<Response> {
  */
 async function updateSettings(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   try {
-    const formData = await request.formData();
-    const system_prompt = formData.get('system_prompt') as string;
-    const max_tokens_str = formData.get('max_tokens') as string;
-    const max_tokens = parseInt(max_tokens_str, 10);
+    const data = await request.json() as {
+      system_prompt: string;
+      model: string;
+      reasoning_effort: "minimal" | "low" | "medium" | "high";
+      text_verbosity: "low" | "medium" | "high";
+      max_output_tokens: number;
+    };
+    
+    const { system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens } = data;
 
     // Validate input
     if (!system_prompt || system_prompt.trim().length === 0) {
@@ -813,8 +915,26 @@ async function updateSettings(request: Request, env: Env, ctx: ExecutionContext)
         headers: { "content-type": "application/json" },
       });
     }
-    if (isNaN(max_tokens) || max_tokens < 50 || max_tokens > 4000) {
-      return new Response(JSON.stringify({ error: "Max tokens must be a number between 50 and 4000" }), {
+    if (isNaN(max_output_tokens) || max_output_tokens < 50 || max_output_tokens > 4000) {
+      return new Response(JSON.stringify({ error: "Max output tokens must be a number between 50 and 4000" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!model || !["gpt-5", "gpt-5-mini", "gpt-5-nano"].includes(model)) {
+      return new Response(JSON.stringify({ error: "Invalid model selected." }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!reasoning_effort || !["minimal", "low", "medium", "high"].includes(reasoning_effort)) {
+      return new Response(JSON.stringify({ error: "Invalid reasoning effort selected." }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (!text_verbosity || !["low", "medium", "high"].includes(text_verbosity)) {
+      return new Response(JSON.stringify({ error: "Invalid text verbosity selected." }), {
         status: 400,
         headers: { "content-type": "application/json" },
       });
@@ -822,15 +942,21 @@ async function updateSettings(request: Request, env: Env, ctx: ExecutionContext)
 
     // Update settings in D1
     await env.DB.prepare(`
-      INSERT INTO project_settings (project_slug, model, system_prompt, max_tokens)
-      VALUES ('default', 'gpt-5', ?, ?)
+      INSERT INTO project_settings (project_slug, model, system_prompt, max_output_tokens, reasoning_effort, text_verbosity)
+      VALUES ('default', ?, ?, ?, ?, ?)
       ON CONFLICT(project_slug) 
-      DO UPDATE SET system_prompt = ?, model = 'gpt-5', max_tokens = ?
+      DO UPDATE SET system_prompt = ?, model = ?, max_output_tokens = ?, reasoning_effort = ?, text_verbosity = ?
     `).bind(
+      model,
       system_prompt,
-      max_tokens,
+      max_output_tokens, // Changed variable name
+      reasoning_effort,
+      text_verbosity,
       system_prompt,
-      max_tokens
+      model,
+      max_output_tokens, // Changed variable name
+      reasoning_effort,
+      text_verbosity
     ).run();
 
     return new Response(JSON.stringify({ success: true }), {

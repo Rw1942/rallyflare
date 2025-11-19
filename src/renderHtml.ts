@@ -338,9 +338,18 @@ function renderEmptyState(text: string, icon: string): string {
 }
 
 // Settings page
-export function renderSettings(settings: { system_prompt: string; temperature?: number; max_tokens?: number } | null, postmarkStatus: PostmarkStatus) {
+export function renderSettings(settings: { 
+  system_prompt: string; 
+  model: string; 
+  reasoning_effort: "minimal" | "low" | "medium" | "high"; 
+  text_verbosity: "low" | "medium" | "high"; 
+  max_output_tokens: number 
+} | null, postmarkStatus: PostmarkStatus) {
   const currentPrompt = settings?.system_prompt || 'You are Rally, an intelligent email assistant.';
-  const currentMaxTokens = settings?.max_tokens || 500;
+  const currentModel = settings?.model || 'gpt-5';
+  const currentReasoningEffort = settings?.reasoning_effort || 'low';
+  const currentTextVerbosity = settings?.text_verbosity || 'low';
+  const currentMaxOutputTokens = settings?.max_output_tokens || 500; // Changed variable name
   
   const content = `
     <div class="card settings-card">
@@ -349,6 +358,7 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
               <p class="settings-subtitle">Control how Rally processes and responds to incoming emails</p>
             </div>
       <div id="successMessage" class="success-message">Settings saved successfully! Changes will apply to all new incoming emails.</div>
+      <div id="errorMessage" class="error-message"></div>
             <div class="info-box">
               <p><strong>Model:</strong> Using GPT-5 (OpenAI's most intelligent model, optimized for coding, instruction following, and reasoning)</p>
               <p style="margin-top: 0.5rem;"><strong>Configuration:</strong> Low reasoning effort + Low verbosity for fast, concise email responses</p>
@@ -359,10 +369,42 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
           <span class="form-help">This tells Rally how to behave when processing emails. Be specific about tone, format, and what actions Rally should take.</span>
           <textarea class="form-textarea" id="system_prompt" name="system_prompt" required placeholder="e.g., You are Rally, a professional email assistant...">${escapeHtml(currentPrompt)}</textarea>
               </div>
+
               <div class="form-group">
-                <label class="form-label" for="max_tokens">Max Response Tokens</label>
+                <label class="form-label" for="model">AI Model</label>
+                <span class="form-help">Choose the OpenAI model for processing emails.</span>
+                <select class="form-input" id="model" name="model" required>
+                  <option value="gpt-5" ${currentModel === 'gpt-5' ? 'selected' : ''}>GPT-5 (Primary)</option>
+                  <option value="gpt-5-mini" ${currentModel === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini (Cheaper / High-volume)</option>
+                  <option value="gpt-5-nano" ${currentModel === 'gpt-5-nano' ? 'selected' : ''}>GPT-5 Nano (Simple Classification)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="reasoning_effort">Reasoning Effort</label>
+                <span class="form-help">Controls the AI's reasoning depth. Lower values for faster, concise answers.</span>
+                <select class="form-input" id="reasoning_effort" name="reasoning_effort" required>
+                  <option value="minimal" ${currentReasoningEffort === 'minimal' ? 'selected' : ''}>Minimal</option>
+                  <option value="low" ${currentReasoningEffort === 'low' ? 'selected' : ''}>Low</option>
+                  <option value="medium" ${currentReasoningEffort === 'medium' ? 'selected' : ''}>Medium</option>
+                  <option value="high" ${currentReasoningEffort === 'high' ? 'selected' : ''}>High</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="text_verbosity">Text Verbosity</label>
+                <span class="form-help">Controls the length of the AI's output. Lower values for shorter responses.</span>
+                <select class="form-input" id="text_verbosity" name="text_verbosity" required>
+                  <option value="low" ${currentTextVerbosity === 'low' ? 'selected' : ''}>Low (Concise)</option>
+                  <option value="medium" ${currentTextVerbosity === 'medium' ? 'selected' : ''}>Medium</option>
+                  <option value="high" ${currentTextVerbosity === 'high' ? 'selected' : ''}>High (Detailed)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="max_output_tokens">Max Output Tokens</label>
                 <span class="form-help">Limits the length of the AI's reply. Lower values produce shorter responses. (Default: 500)</span>
-                <input type="number" class="form-input" id="max_tokens" name="max_tokens" value="${currentMaxTokens}" min="50" max="4000" required>
+                <input type="number" class="form-input" id="max_output_tokens" name="max_output_tokens" value="${currentMaxOutputTokens}" min="50" max="4000" required>
               </div>
               <div class="button-group">
                 <button type="submit" class="btn btn-primary">Save Settings</button>
@@ -412,6 +454,8 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
     .button-group { display: flex; gap: 1rem; margin-top: 2rem; }
     .success-message { background: #dcfce7; color: #15803d; padding: 1rem; border-radius: 12px; margin-bottom: 2rem; display: none; }
     .success-message.show { display: block; }
+    .error-message { background: #fef2f2; color: #dc2626; padding: 1rem; border-radius: 12px; margin-bottom: 2rem; display: none; }
+    .error-message.show { display: block; }
 
     .status-indicator { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.5rem; border-radius: 12px; margin-bottom: 1.5rem; }
     .status-indicator.status-ok { background: #dcfce7; color: #15803d; }
@@ -426,11 +470,24 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
   `;
   
   const scripts = `<script>
+          function showError(message) {
+            const el = document.getElementById('errorMessage');
+            if (el) {
+              el.textContent = message;
+              el.classList.add('show');
+              setTimeout(() => el.classList.remove('show'), 5000);
+            }
+          }
+
           document.getElementById('settingsForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+      const formData = new FormData(e.target);
       const data = {
-        system_prompt: new FormData(e.target).get('system_prompt'),
-        max_tokens: parseInt(new FormData(e.target).get('max_tokens') as string),
+        system_prompt: formData.get('system_prompt'),
+        model: formData.get('model'),
+        reasoning_effort: formData.get('reasoning_effort'),
+        text_verbosity: formData.get('text_verbosity'),
+        max_output_tokens: parseInt(formData.get('max_output_tokens')),
       };
             try {
               const response = await fetch('/settings', {
@@ -442,15 +499,34 @@ export function renderSettings(settings: { system_prompt: string; temperature?: 
                 document.getElementById('successMessage').classList.add('show');
           setTimeout(() => document.getElementById('successMessage').classList.remove('show'), 5000);
               } else {
-                alert('Error saving settings. Please try again.');
+                const errorResult = await response.json();
+                showError(errorResult.error || 'Error saving settings. Please try again.');
               }
             } catch (error) {
-              alert('Error saving settings. Please try again.');
+              showError('Error saving settings. Please try again.');
             }
           });
   </script>`;
   
   return renderLayout('Rally - Settings', '/settings', 'Configure how Rally understands and responds to emails', content, styles, scripts);
+}
+
+function showSuccess(message: string) {
+  const el = document.getElementById('successMessage');
+  if (el) {
+    el.textContent = message;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 5000);
+  }
+}
+
+function showError(message: string) {
+  const el = document.getElementById('errorMessage');
+  if (el) {
+    el.textContent = message;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 5000);
+  }
 }
 
 // Email Prompts page
