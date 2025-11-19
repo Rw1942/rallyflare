@@ -419,6 +419,8 @@ Rally uses **OpenAI Responses API** (`/v1/responses`) exclusively:
 
 **Available in Settings:**
 - **Model** - GPT-5.1 (advanced, $2.50/$10.00 per 1M) or GPT-5 Mini (fast, $0.25/$2.00 per 1M)
+  - GPT-5.1: Confirmed file/attachment support
+  - GPT-5 Mini: File support not officially documented (use with caution for attachments)
 - **Reasoning effort** - minimal, low, medium, high (controls thinking depth)
 - **Text verbosity** - low, medium, high (controls response length)
 - **Max output tokens** - Hard cap on response length (50-128000)

@@ -4,10 +4,12 @@ Cloudflare Workers • TypeScript • D1 • R2
 
 **IMPORTANT: Model Names**
 - **Available Models:**
-  - `gpt-5.1` - Advanced reasoning model ($2.50 input / $10.00 output per 1M tokens)
+  - `gpt-5.1` - Advanced reasoning model with confirmed file support ($2.50 input / $10.00 output per 1M tokens)
   - `gpt-5-mini` - Faster, cost-effective ($0.25 input / $2.00 output per 1M tokens)
+    - **Note:** File support not officially documented for gpt-5-mini. Use with caution for attachment-heavy emails.
 - **Supported Parameters:** `reasoning.effort`, `text.verbosity`, `max_output_tokens`
 - **Unsupported Parameters:** `temperature`, `top_p` (will cause 400 errors)
+- **File Upload:** Both models use Files API (`/v1/files`) then reference via `file_id` in content array
 
 ---
 
