@@ -1,4 +1,5 @@
 import { renderLayout } from '../layout';
+import { renderMessageRow, messageScripts, renderPagination } from './shared';
 
 export function renderPersonas(personas: any[]): string {
   const content = `
@@ -24,11 +25,13 @@ function renderPersonaRow(persona: any): string {
     ? persona.system_prompt.substring(0, 100).replace(/\s+/g, ' ').trim() + (persona.system_prompt.length > 100 ? '...' : '')
     : 'No prompt set';
   
+  const messageCount = persona.message_count || 0;
+  
   return `
     <a href="/personas/${encodeURIComponent(persona.email_address)}" class="message-item">
       <div class="flex-between">
         <div class="msg-sender" style="font-weight: 600;">${escapeHtml(persona.email_address)}</div>
-        <span class="badge badge-success">Active</span>
+        <span class="badge badge-success">${messageCount} messages</span>
       </div>
       ${persona.model ? `<div class="text-sm text-muted">Model: ${escapeHtml(persona.model)}</div>` : ''}
       <div class="text-sm text-muted" style="font-style: italic; margin-top: 0.5rem;">${escapeHtml(promptPreview)}</div>
@@ -37,6 +40,7 @@ function renderPersonaRow(persona: any): string {
 }
 
 export function renderPersonaEdit(persona: any | null, isNew: boolean = false): string {
+  const formAction = isNew ? '/personas' : `/personas/${encodeURIComponent(persona.email_address)}/edit`;
   const emailAddress = persona?.email_address || '';
   const systemPrompt = persona?.system_prompt || '';
   const model = persona?.model || '';
@@ -51,7 +55,7 @@ export function renderPersonaEdit(persona: any | null, isNew: boolean = false): 
         <a href="/personas" class="text-sm text-muted">&larr; Back</a>
       </div>
       <div class="card-body">
-        <form method="POST" action="/personas${isNew ? '' : '/' + encodeURIComponent(emailAddress)}">
+        <form method="POST" action="${formAction}">
           <div class="form-group">
             <label for="email_address" class="form-label">Email Address</label>
             <input 
@@ -150,6 +154,49 @@ export function renderPersonaEdit(persona: any | null, isNew: boolean = false): 
   `;
 
   return renderLayout(isNew ? 'New Persona' : 'Edit Persona', content, '/personas', scripts);
+}
+
+export function renderPersonaDetail(persona: any, history: any[], pagination?: { page: number, totalPages: number, baseUrl: string }): string {
+  const content = `
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Persona: ${escapeHtml(persona.email_address)}</h2>
+        <a href="/personas/${encodeURIComponent(persona.email_address)}/edit" class="btn btn-primary">Edit Settings</a>
+      </div>
+      <div class="card-body">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${history.length}</div>
+            <div class="stat-label">Messages</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${persona.model || 'Default'}</div>
+            <div class="stat-label">Model</div>
+          </div>
+        </div>
+        ${persona.system_prompt ? `
+          <div class="form-group" style="margin-top: 1rem;">
+            <label class="form-label">System Prompt</label>
+            <div class="form-input" style="background: #f9fafb; white-space: pre-wrap;">${escapeHtml(persona.system_prompt)}</div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2 class="card-title">Message History</h2>
+      </div>
+      <div class="card-body">
+        <div class="message-list">
+          ${history.length > 0 ? history.map(renderMessageRow).join('') : '<p class="text-muted text-center">No messages yet for this persona.</p>'}
+        </div>
+        ${pagination ? renderPagination(pagination.page, pagination.totalPages, pagination.baseUrl) : ''}
+      </div>
+    </div>
+  `;
+
+  return renderLayout(`Persona: ${persona.email_address}`, content, '/personas', messageScripts);
 }
 
 function escapeHtml(text: string): string {

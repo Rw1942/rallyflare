@@ -4,7 +4,7 @@ import { renderMessages } from "./dashboard/views/messages";
 import { renderUsers } from "./dashboard/views/users";
 import { renderUserDetail } from "./dashboard/views/userDetail";
 import { renderSettings } from "./dashboard/views/settings";
-import { renderPersonas, renderPersonaEdit } from "./dashboard/views/personas";
+import { renderPersonas, renderPersonaEdit, renderPersonaDetail } from "./dashboard/views/personas";
 import type { Env } from "./types";
 
 // Helper to create HTML response
@@ -119,7 +119,13 @@ export default {
 
       // Personas - list
       if (path === "/personas" && method === "GET") {
-        const { results } = await env.DB.prepare("SELECT * FROM email_settings ORDER BY email_address ASC").all();
+        const { results } = await env.DB.prepare(`
+          SELECT 
+            es.*, 
+            (SELECT COUNT(*) FROM messages WHERE lower(email_address) = es.email_address) as message_count
+          FROM email_settings es 
+          ORDER BY es.email_address ASC
+        `).all();
         return html(renderPersonas(safeResults(results)));
       }
 
@@ -128,8 +134,30 @@ export default {
         return html(renderPersonaEdit(null, true));
       }
 
+      // Personas - detail (with message history)
+      if (path.startsWith("/personas/") && !path.endsWith("/new") && !path.endsWith("/edit") && method === "GET") {
+        const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
+        const persona = await env.DB.prepare("SELECT * FROM email_settings WHERE email_address = ?").bind(email).first();
+        if (!persona) return new Response("Persona not found", { status: 404 });
+
+        const page = parseInt(url.searchParams.get('page') || '1') || 1;
+        const limit = 50;
+        const offset = (page - 1) * limit;
+
+        const { count } = await env.DB.prepare(
+          "SELECT COUNT(*) as count FROM messages WHERE lower(email_address) = ?"
+        ).bind(email).first() as any || { count: 0 };
+        const totalPages = Math.ceil(count / limit);
+
+        const { results: history } = await env.DB.prepare(
+          "SELECT * FROM messages WHERE lower(email_address) = ? ORDER BY received_at DESC LIMIT ? OFFSET ?"
+        ).bind(email, limit, offset).all();
+
+        return html(renderPersonaDetail(persona, safeResults(history), { page, totalPages, baseUrl: `/personas/${encodeURIComponent(email)}` }));
+      }
+
       // Personas - edit form
-      if (path.startsWith("/personas/") && !path.endsWith("/new") && method === "GET") {
+      if (path.startsWith("/personas/") && path.endsWith("/edit") && method === "GET") {
         const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
         const persona = await env.DB.prepare("SELECT * FROM email_settings WHERE email_address = ?").bind(email).first();
         if (!persona) return new Response("Persona not found", { status: 404 });
@@ -154,7 +182,7 @@ export default {
       }
 
       // Personas - update
-      if (path.startsWith("/personas/") && method === "POST") {
+      if (path.startsWith("/personas/") && path.endsWith("/edit") && method === "POST") {
         const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
         const formData = await request.formData();
         await env.DB.prepare(`

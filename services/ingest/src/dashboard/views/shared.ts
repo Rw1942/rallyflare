@@ -22,14 +22,21 @@ export function renderMessageRow(msg: any): string {
   const rawDate = msg.received_at || msg.sent_at || new Date().toISOString();
   const date = new Date(rawDate).toLocaleString('en-US', { timeZone: 'America/Denver' });
   
-  // Determine From and To using actual database fields
-  const fromEmail = msg.from_email || 'Unknown';
-  const fromName = msg.from_name || fromEmail;
-  const toEmail = isInbound ? (msg.email_address || 'Unknown') : (msg.recipient_email || 'Unknown');
+  // Determine From and To based on direction
+  let fromDisplay, toDisplay;
+  if (isInbound) {
+    // Inbound: User sent TO Rally persona
+    fromDisplay = msg.from_name ? `${msg.from_name} <${msg.from_email}>` : msg.from_email;
+    toDisplay = msg.email_address || 'Rally';
+  } else {
+    // Outbound: Rally persona sent TO User
+    fromDisplay = msg.email_address || 'Rally';
+    toDisplay = msg.recipient_email || 'User';
+  }
   
-  // Create preview from text or HTML (strip tags for preview)
+  // Create preview from text or HTML
   const previewText = msg.raw_text 
-    ? msg.raw_text.substring(0, 150).replace(/\s+/g, ' ').trim() + (msg.raw_text.length > 150 ? '...' : '')
+    ? msg.raw_text.substring(0, 120).replace(/\s+/g, ' ').trim() + (msg.raw_text.length > 120 ? '...' : '')
     : (msg.raw_html ? 'Click to view HTML content...' : 'No content');
   
   // Full HTML content for expansion
@@ -46,8 +53,8 @@ export function renderMessageRow(msg: any): string {
       <div class="msg-subject" style="font-weight: 600; margin-bottom: 0.5rem;">${escapeHtml(msg.subject || '(No Subject)')}</div>
       
       <div class="msg-participants text-sm text-muted" style="margin-bottom: 0.5rem;">
-        <div><strong>From:</strong> ${escapeHtml(fromName)} &lt;${escapeHtml(fromEmail)}&gt;</div>
-        <div><strong>To:</strong> ${escapeHtml(toEmail)}</div>
+        <div><strong>From:</strong> ${escapeHtml(fromDisplay)}</div>
+        <div><strong>To:</strong> ${escapeHtml(toDisplay)}</div>
       </div>
       
       <div class="msg-preview text-sm text-muted" style="font-style: italic;">
