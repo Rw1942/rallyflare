@@ -28,9 +28,9 @@ function renderPersonaRow(persona: any): string {
   const messageCount = persona.message_count || 0;
   
   return `
-    <a href="/personas/${encodeURIComponent(persona.email_address)}" class="message-item">
-      <div class="flex-between">
-        <div class="msg-sender" style="font-weight: 600;">${escapeHtml(persona.email_address)}</div>
+    <a href="/personas/${encodeURIComponent(persona.email_address)}" class="persona-item" style="display: block; padding: 1rem; border-bottom: 1px solid #eee; text-decoration: none; color: inherit; transition: background 0.2s;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-weight: 600;">${escapeHtml(persona.email_address)}</div>
         <span class="badge badge-success">${messageCount} messages</span>
       </div>
       ${persona.model ? `<div class="text-sm text-muted">Model: ${escapeHtml(persona.model)}</div>` : ''}

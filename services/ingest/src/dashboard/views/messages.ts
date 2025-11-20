@@ -9,7 +9,7 @@ export function renderMessages(messages: any[], pagination?: { page: number, tot
       </div>
       <div class="card-body">
         <div class="message-list">
-          ${messages.map(renderMessageRow).join('')}
+          ${messages.length > 0 ? messages.map(renderMessageRow).join('') : '<p class="text-muted text-center">No messages yet.</p>'}
         </div>
         ${pagination ? renderPagination(pagination.page, pagination.totalPages, pagination.baseUrl) : ''}
       </div>

@@ -20,7 +20,7 @@ export function renderUsers(users: any[]): string {
       const input = document.getElementById('userSearch');
       const filter = input.value.toLowerCase();
       const list = document.getElementById('userList');
-      const items = list.getElementsByClassName('message-item');
+      const items = list.getElementsByClassName('user-item');
 
       for (let i = 0; i < items.length; i++) {
         const text = items[i].textContent || items[i].innerText;
@@ -42,13 +42,13 @@ function renderUserRow(user: any): string {
   const msgCount = user.message_count !== undefined ? user.message_count : 0;
   
   return `
-    <a href="/users/${encodeURIComponent(user.email)}" class="message-item">
-      <div class="flex-between">
-        <div class="msg-sender">${escapeHtml(user.name || user.email)}</div>
+    <a href="/users/${encodeURIComponent(user.email)}" class="user-item" style="display: block; padding: 1rem; border-bottom: 1px solid #eee; text-decoration: none; color: inherit; transition: background 0.2s;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-weight: 500;">${escapeHtml(user.name || user.email)}</div>
         <span class="badge ${user.opt_out ? 'badge-error' : 'badge-success'}">${user.opt_out ? 'Opted Out' : 'Active'}</span>
       </div>
       <div class="text-sm text-muted">${escapeHtml(user.email)}</div>
-      <div class="flex-between" style="margin-top: 0.25rem">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem">
         <div class="text-sm text-muted">Last seen: <span data-timestamp="${rawDate}">${lastSeen}</span></div>
         <div class="text-sm text-muted">Messages: ${msgCount}</div>
       </div>
