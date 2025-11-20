@@ -15,8 +15,11 @@ export default class MailerService extends WorkerEntrypoint<Env> {
         const startTime = Date.now();
 
         try {
+            // Format From field with friendly name
+            const fromWithName = `Email2ChatGPT <${reply.from}>`;
+            
             const emailBody = {
-                From: reply.from,
+                From: fromWithName,
                 ReplyTo: reply.replyTo,
                 To: reply.to,
                 Subject: reply.subject,

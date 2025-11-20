@@ -184,9 +184,9 @@ To secure your Postmark inbound webhook, Email2ChatGPT now uses HTTP Basic Authe
 ## API Endpoints
 
 - `POST /postmark/inbound` - Receive inbound message JSON, store, call OpenAI
-- `GET /messages` - List all messages (JSON)
-- `GET /messages/:id` - Get message detail (JSON)
-- `GET /` - View recent messages (HTML)
+- `GET /messages` - View all messages (HTML)
+- `GET /` - Dashboard Home (HTML)
+- `GET /api/users/:email/export` - Export user data (JSON)
 
 ## Next Steps
 

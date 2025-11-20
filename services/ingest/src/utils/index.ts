@@ -128,6 +128,13 @@ function formatBytes(bytes: number, decimals = 1) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
+/**
+ * Escapes special characters in a string for safe HTML rendering.
+ */
+export function escapeHtml(text: string): string {
+  return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // --- Cost Calculation Utils ---
 
 export function calculateCost(inputTokens: number, outputTokens: number, inputRate: number, outputRate: number): number {
