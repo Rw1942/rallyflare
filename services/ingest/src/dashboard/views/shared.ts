@@ -34,13 +34,30 @@ export function renderMessageRow(msg: any): string {
     toDisplay = msg.recipient_email || 'User';
   }
   
-  // Create preview from text or HTML
-  const previewText = msg.raw_text 
-    ? msg.raw_text.substring(0, 120).replace(/\s+/g, ' ').trim() + (msg.raw_text.length > 120 ? '...' : '')
-    : (msg.raw_html ? 'Click to view HTML content...' : 'No content');
+  // Create preview from text - strip HTML tags if present
+  let previewText;
+  if (msg.raw_text) {
+    const plainText = msg.raw_text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    previewText = plainText.substring(0, 120) + (plainText.length > 120 ? '...' : '');
+  } else if (msg.raw_html) {
+    previewText = 'Click to view HTML content';
+  } else {
+    previewText = 'No content';
+  }
   
-  // Full HTML content for expansion
-  const htmlContent = msg.raw_html || (msg.raw_text ? `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(msg.raw_text)}</pre>` : '<p class="text-muted">No content</p>');
+  // Full content - prefer HTML for rich rendering, fallback to text
+  let expandedContent;
+  if (msg.raw_html) {
+    // Render HTML in sandboxed iframe - escape quotes for attribute
+    const escapedForAttribute = msg.raw_html.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    expandedContent = `<iframe srcdoc="${escapedForAttribute}" style="width: 100%; min-height: 500px; border: 1px solid #ddd; border-radius: 4px; background: white;" sandbox="allow-same-origin"></iframe>`;
+  } else if (msg.raw_text) {
+    // Show text content with preserved formatting
+    expandedContent = `<div style="white-space: pre-wrap; font-family: inherit; line-height: 1.5;">${escapeHtml(msg.raw_text)}</div>`;
+  } else {
+    expandedContent = '<p class="text-muted">No content</p>';
+  }
+  
   const safeId = msg.id;
   
   return `
@@ -63,7 +80,7 @@ export function renderMessageRow(msg: any): string {
       
       <div id="content-${safeId}" class="msg-content" style="display: none; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ddd; background: #fafafa; padding: 1rem; border-radius: 4px; max-height: 600px; overflow-y: auto;" onclick="event.stopPropagation()">
          <div class="email-body" style="background: white; padding: 1rem; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-           ${htmlContent}
+           ${expandedContent}
          </div>
       </div>
     </div>
