@@ -91,9 +91,8 @@ The admin dashboard uses server-side rendered HTML with minimal vanilla JS to en
 
 4. **Run migrations**
    ```bash
-   # Migrations must be applied manually since we use microservices
-   # Check migrations/ folder for new .sql files and apply them:
-   npx wrangler d1 execute rally-database --remote --command "YOUR SQL HERE"
+   # Apply all migrations automatically from the ingest service directory
+   cd services/ingest && npx wrangler d1 migrations apply rally-database --remote
    ```
 
 5. **Set secrets**
@@ -106,22 +105,72 @@ The admin dashboard uses server-side rendered HTML with minimal vanilla JS to en
 
 6. **Deploy Services**
    ```bash
-   # Deploy all services (order doesn't matter but dependencies first is good practice)
-   npx wrangler deploy services/mailer/src/index.ts --name rally-mailer
-   npx wrangler deploy services/attachments/src/index.ts --name rally-attachments
-   npx wrangler deploy services/ai/src/index.ts --name rally-ai
-   npx wrangler deploy services/ingest/src/index.ts --name rally-ingest
+   # Deploy from each service directory (recommended approach)
+   cd services/ingest && npx wrangler deploy
+   cd ../ai && npx wrangler deploy
+   cd ../mailer && npx wrangler deploy
+   cd ../attachments && npx wrangler deploy
    ```
+   
+   **💡 Tip**: For daily development, you usually only need to deploy the service you changed:
+   ```bash
+   cd services/ingest && npx wrangler deploy  # Most common - handles 90% of changes
+   ```
+
+### Quick Deployment Workflow
+
+**For daily development:**
+```bash
+# 1. Make your changes to the code
+
+# 2. Deploy the changed service
+cd services/ingest && npx wrangler deploy
+
+# 3. Test immediately
+# Send test email or visit dashboard
+```
+
+**When adding database migrations:**
+```bash
+# 1. Create migration file in migrations/ folder
+
+# 2. Apply migration
+cd services/ingest && npx wrangler d1 migrations apply rally-database --remote
+
+# 3. Deploy the code
+npx wrangler deploy
+```
+
+**For production releases:**
+```bash
+# 1. Commit and push to GitHub
+git add . && git commit -m "feat: description" && git push
+
+# 2. Apply any new migrations
+cd services/ingest && npx wrangler d1 migrations apply rally-database --remote
+
+# 3. Deploy changed services
+npx wrangler deploy  # (from within the service directory)
+
+# 4. Verify with live logs
+npx wrangler tail rallyflare
+```
 
 ### Troubleshooting
 
 **"JavaScript Exception" on Dashboard:**
 *   This usually means a database query failed. Check that your D1 database has all tables created (`users`, `messages`, `email_settings`).
-*   Use `npx wrangler tail rally-ingest` to see the exact error trace.
+*   Use `npx wrangler tail rallyflare` to see the exact error trace.
 
 **AI Not Replying:**
-*   Check `rally-ai` logs. Ensure your OpenAI API key is valid and has access to `gpt-5.1`.
+*   Check `rally-ai` logs: `npx wrangler tail rally-ai`
+*   Ensure your OpenAI API key is valid and has access to `gpt-5.1`.
 *   Verify `rally-ingest` logs to see if it successfully handed off the request.
+
+**Migrations Not Working:**
+*   Make sure you're running migrations from `services/ingest/` directory
+*   Check `wrangler.toml` has `migrations_dir = "../../migrations"` configured
+*   Verify the database binding is correct in `wrangler.toml`
 
 ## License
 

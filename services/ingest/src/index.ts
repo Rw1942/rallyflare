@@ -72,23 +72,24 @@ export default {
 
       // User detail
       if (path.startsWith("/users/") && method === "GET") {
-        const email = decodeURIComponent(path.split("/")[2]);
-        const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email).first();
+        const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
+        const user = await env.DB.prepare("SELECT * FROM users WHERE lower(email) = ?").bind(email).first();
         if (!user) return new Response("User not found", { status: 404 });
 
         const page = parseInt(url.searchParams.get('page') || '1') || 1;
         const limit = 50;
         const offset = (page - 1) * limit;
 
-        // Count user messages
+        // Count user messages - Unified query using recipient_email
+        // recipient_email tracks the user involved regardless of direction
         const { count } = await env.DB.prepare(
-          "SELECT COUNT(*) as count FROM messages WHERE from_email = ? OR recipient_email = ?"
-        ).bind(email, email).first() as any || { count: 0 };
+          "SELECT COUNT(*) as count FROM messages WHERE lower(recipient_email) = ?"
+        ).bind(email).first() as any || { count: 0 };
         const totalPages = Math.ceil(count / limit);
 
         const { results: history } = await env.DB.prepare(
-          "SELECT * FROM messages WHERE from_email = ? OR recipient_email = ? ORDER BY received_at DESC LIMIT ? OFFSET ?"
-        ).bind(email, email, limit, offset).all();
+          "SELECT * FROM messages WHERE lower(recipient_email) = ? ORDER BY received_at DESC LIMIT ? OFFSET ?"
+        ).bind(email, limit, offset).all();
 
         const settings = await env.DB.prepare("SELECT * FROM email_settings WHERE email_address = ?").bind(email).first();
         
@@ -129,7 +130,7 @@ export default {
 
       // Personas - edit form
       if (path.startsWith("/personas/") && !path.endsWith("/new") && method === "GET") {
-        const email = decodeURIComponent(path.split("/")[2]);
+        const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
         const persona = await env.DB.prepare("SELECT * FROM email_settings WHERE email_address = ?").bind(email).first();
         if (!persona) return new Response("Persona not found", { status: 404 });
         return html(renderPersonaEdit(persona, false));
@@ -154,7 +155,7 @@ export default {
 
       // Personas - update
       if (path.startsWith("/personas/") && method === "POST") {
-        const email = decodeURIComponent(path.split("/")[2]);
+        const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
         const formData = await request.formData();
         await env.DB.prepare(`
           UPDATE email_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, text_verbosity = ?, max_output_tokens = ?
@@ -172,7 +173,7 @@ export default {
 
       // Personas - delete
       if (path.startsWith("/personas/") && method === "DELETE") {
-        const email = decodeURIComponent(path.split("/")[2]);
+        const email = decodeURIComponent(path.split("/")[2]).toLowerCase();
         await env.DB.prepare("DELETE FROM email_settings WHERE email_address = ?").bind(email).run();
         return new Response("Deleted", { status: 200 });
       }
@@ -181,8 +182,8 @@ export default {
       
       // User export (GDPR)
       if (path.startsWith("/api/users/") && path.endsWith("/export") && method === "GET") {
-        const email = decodeURIComponent(path.split("/")[3]);
-        const { results } = await env.DB.prepare("SELECT * FROM messages WHERE from_email = ? OR recipient_email = ?").bind(email, email).all();
+        const email = decodeURIComponent(path.split("/")[3]).toLowerCase();
+        const { results } = await env.DB.prepare("SELECT * FROM messages WHERE lower(recipient_email) = ?").bind(email).all();
         return new Response(JSON.stringify(results, null, 2), {
           headers: {
             "Content-Type": "application/json",
@@ -193,7 +194,7 @@ export default {
 
       // User delete (GDPR)
       if (path.startsWith("/api/users/") && method === "DELETE") {
-        const email = decodeURIComponent(path.split("/")[3]);
+        const email = decodeURIComponent(path.split("/")[3]).toLowerCase();
         await env.DB.batch([
           env.DB.prepare("DELETE FROM users WHERE email = ?").bind(email),
           env.DB.prepare("DELETE FROM email_settings WHERE email_address = ?").bind(email),
@@ -202,9 +203,9 @@ export default {
               from_name = 'Deleted User', from_email = 'deleted@anon.com', 
               raw_text = '[DELETED]', raw_html = '[DELETED]', 
               llm_summary = '[DELETED]', llm_reply = '[DELETED]',
-              recipient_email = CASE WHEN recipient_email = ? THEN 'deleted@anon.com' ELSE recipient_email END
-            WHERE from_email = ? OR recipient_email = ?
-          `).bind(email, email, email)
+              recipient_email = 'deleted@anon.com'
+            WHERE lower(recipient_email) = ?
+          `).bind(email)
         ]);
         return new Response("Deleted", { status: 200 });
       }

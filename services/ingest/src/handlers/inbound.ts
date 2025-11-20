@@ -23,7 +23,8 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     const receivedAt = new Date().toISOString();
 
     // 1. Store Message in D1
-    const rallyEmailAddress = extractRallyEmailAddress(postmarkData);
+    const rallyEmailAddress = extractRallyEmailAddress(postmarkData).toLowerCase();
+    const senderEmail = (postmarkData.FromFull?.Email || postmarkData.From || "").toLowerCase();
 
     let textContent = postmarkData.TextBody || "";
     if (hasImages(postmarkData) || !textContent) {
@@ -43,10 +44,10 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       postmarkData.MessageID === "00000000-0000-0000-0000-000000000000" ? crypto.randomUUID() : postmarkData.MessageID,
       postmarkData.Headers?.find((h: any) => h.Name === "In-Reply-To")?.Value || null,
       postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || null,
-      postmarkData.FromFull?.Name || "", postmarkData.FromFull?.Email || postmarkData.From,
+      postmarkData.FromFull?.Name || "", senderEmail,
       textContent, postmarkData.HtmlBody || "",
       postmarkData.MessageID, (postmarkData.Attachments?.length || 0) > 0 ? 1 : 0,
-      'inbound', rallyEmailAddress, postmarkData.FromFull?.Email || postmarkData.From
+      'inbound', rallyEmailAddress, senderEmail
     ).run();
 
     // 2. Handle Attachments
@@ -103,7 +104,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     const settings = mergeSettings(projectSettings, emailSettings);
 
     if (!settings.system_prompt) {
-      const replyToAddress = extractRallyEmailAddress(postmarkData);
+      const replyToAddress = rallyEmailAddress;
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
@@ -113,7 +114,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
 
       const errorReply: EmailReply = {
         from: replyToAddress,
-        to: postmarkData.FromFull?.Email || postmarkData.From,
+        to: senderEmail,
         subject: `Re: ${postmarkData.Subject}`,
         textBody,
         htmlBody,
@@ -153,7 +154,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     let htmlBody: string | null = null;
     
     if (aiResponse.reply) {
-      const replyToAddress = extractRallyEmailAddress(postmarkData);
+      const replyToAddress = rallyEmailAddress;
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
@@ -192,7 +193,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       
       const emailReply: EmailReply = {
         from: replyToAddress,
-        to: postmarkData.FromFull?.Email || postmarkData.From,
+        to: senderEmail,
         subject: `Re: ${postmarkData.Subject}`,
         textBody,
         htmlBody,
@@ -239,7 +240,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
         crypto.randomUUID(), sentAt, sentAt, `Re: ${postmarkData.Subject}`,
         crypto.randomUUID(), postmarkData.MessageID,
         "Email2ChatGPT", rallyEmailAddress, textBody, htmlBody,
-        'outbound', internalId, rallyEmailAddress, postmarkData.FromFull?.Email || postmarkData.From
+        'outbound', internalId, rallyEmailAddress, senderEmail
       ).run();
     }
 
