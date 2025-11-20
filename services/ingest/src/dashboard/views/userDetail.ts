@@ -1,8 +1,8 @@
 import { renderLayout } from '../layout';
 import { escapeHtml } from '../../utils/index';
-import { renderMessageRow, messageScripts } from './shared';
+import { renderMessageRow, messageScripts, renderPagination } from './shared';
 
-export function renderUserDetail(user: any, history: any[], settings: any): string {
+export function renderUserDetail(user: any, history: any[], settings: any, pagination?: { page: number, totalPages: number, baseUrl: string }): string {
   const content = `
     <div class="card">
       <div class="card-header">
@@ -65,6 +65,7 @@ export function renderUserDetail(user: any, history: any[], settings: any): stri
         <div class="message-list">
           ${history.map(renderMessageRow).join('')}
         </div>
+        ${pagination ? renderPagination(pagination.page, pagination.totalPages, pagination.baseUrl) : ''}
       </div>
     </div>
 

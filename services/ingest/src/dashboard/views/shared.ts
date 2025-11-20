@@ -62,3 +62,28 @@ export function renderMessageRow(msg: any): string {
     </div>
   `;
 }
+
+export function renderPagination(currentPage: number, totalPages: number, baseUrl: string): string {
+  if (totalPages <= 1) return '';
+
+  const prevPage = currentPage > 1 ? currentPage - 1 : 1;
+  const nextPage = currentPage < totalPages ? currentPage + 1 : totalPages;
+  
+  // Simple URL construction assuming baseUrl is a path like "/messages"
+  // and we don't have other query params to preserve yet.
+  const getUrl = (page: number) => `${baseUrl}?page=${page}`;
+
+  return `
+    <div class="pagination" style="display: flex; justify-content: center; gap: 1rem; margin-top: 2rem; align-items: center; padding: 1rem;">
+      ${currentPage > 1 
+        ? `<a href="${getUrl(prevPage)}" class="btn" style="text-decoration: none; padding: 0.5rem 1rem; background: #f0f0f0; border-radius: 4px; color: #333;">&larr; Previous</a>` 
+        : `<span class="btn disabled" style="opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1rem; background: #f0f0f0; border-radius: 4px; color: #333;">&larr; Previous</span>`}
+      
+      <span class="text-muted" style="font-weight: 500;">Page ${currentPage} of ${totalPages}</span>
+      
+      ${currentPage < totalPages 
+        ? `<a href="${getUrl(nextPage)}" class="btn" style="text-decoration: none; padding: 0.5rem 1rem; background: #f0f0f0; border-radius: 4px; color: #333;">Next &rarr;</a>` 
+        : `<span class="btn disabled" style="opacity: 0.5; cursor: not-allowed; padding: 0.5rem 1rem; background: #f0f0f0; border-radius: 4px; color: #333;">Next &rarr;</span>`}
+    </div>
+  `;
+}

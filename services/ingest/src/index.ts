@@ -48,8 +48,17 @@ export default {
 
       // Messages list
       if (path === "/messages" && method === "GET") {
-        const { results } = await env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT 100").all();
-        return html(renderMessages(safeResults(results)));
+        const page = parseInt(url.searchParams.get('page') || '1') || 1;
+        const limit = 50;
+        const offset = (page - 1) * limit;
+
+        const { count } = await env.DB.prepare("SELECT COUNT(*) as count FROM messages").first() as any || { count: 0 };
+        const totalPages = Math.ceil(count / limit);
+
+        const { results } = await env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT ? OFFSET ?")
+          .bind(limit, offset)
+          .all();
+        return html(renderMessages(safeResults(results), { page, totalPages, baseUrl: '/messages' }));
       }
 
       // Users list
@@ -67,13 +76,23 @@ export default {
         const user = await env.DB.prepare("SELECT * FROM users WHERE email = ?").bind(email).first();
         if (!user) return new Response("User not found", { status: 404 });
 
+        const page = parseInt(url.searchParams.get('page') || '1') || 1;
+        const limit = 50;
+        const offset = (page - 1) * limit;
+
+        // Count user messages
+        const { count } = await env.DB.prepare(
+          "SELECT COUNT(*) as count FROM messages WHERE from_email = ? OR recipient_email = ?"
+        ).bind(email, email).first() as any || { count: 0 };
+        const totalPages = Math.ceil(count / limit);
+
         const { results: history } = await env.DB.prepare(
-          "SELECT * FROM messages WHERE from_email = ? OR recipient_email = ? ORDER BY received_at DESC LIMIT 50"
-        ).bind(email, email).all();
+          "SELECT * FROM messages WHERE from_email = ? OR recipient_email = ? ORDER BY received_at DESC LIMIT ? OFFSET ?"
+        ).bind(email, email, limit, offset).all();
 
         const settings = await env.DB.prepare("SELECT * FROM email_settings WHERE email_address = ?").bind(email).first();
         
-        return html(renderUserDetail(user, safeResults(history), settings));
+        return html(renderUserDetail(user, safeResults(history), settings, { page, totalPages, baseUrl: `/users/${encodeURIComponent(email)}` }));
       }
 
       // Settings - view

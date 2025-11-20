@@ -1,7 +1,7 @@
 import { renderLayout } from '../layout';
-import { renderMessageRow, messageScripts } from './shared';
+import { renderMessageRow, messageScripts, renderPagination } from './shared';
 
-export function renderMessages(messages: any[]): string {
+export function renderMessages(messages: any[], pagination?: { page: number, totalPages: number, baseUrl: string }): string {
   const content = `
     <div class="card">
       <div class="card-header">
@@ -11,6 +11,7 @@ export function renderMessages(messages: any[]): string {
         <div class="message-list">
           ${messages.map(renderMessageRow).join('')}
         </div>
+        ${pagination ? renderPagination(pagination.page, pagination.totalPages, pagination.baseUrl) : ''}
       </div>
     </div>
   `;
