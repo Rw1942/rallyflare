@@ -1,4 +1,4 @@
-import { renderDashboard, renderSettings, renderEmailPrompts, renderRequestsPage, renderRequestDetail, renderUsersPage } from "./renderHtml";
+import { renderDashboard, renderSettings } from "./renderHtml";
 import { PostmarkInboundMessage, AiRequest, EmailReply } from "shared/types";
 import { hasImages, flattenHtml, appendAttachments, calculateCost } from "./utils/index";
 import { buildEmailWithFooter, buildErrorEmail, buildSimpleEmail } from "./utils/emailTemplate";
@@ -35,19 +35,7 @@ export default {
     if (path.startsWith("/messages/") && request.method === "GET") return getMessageDetail(env, path.split("/")[2]);
     if (path === "/settings" && request.method === "GET") return getSettings(env);
     if (path === "/settings" && request.method === "POST") return updateSettings(request, env);
-    if (path === "/email-prompts" && request.method === "GET") return getEmailPromptsPage(env);
-    if (path === "/api/email-prompts" && request.method === "GET") return getEmailPrompts(env);
-    if (path === "/email-prompts" && request.method === "POST") return createEmailPrompt(request, env);
-    if (path.startsWith("/email-prompts/") && request.method === "PUT") return updateEmailPrompt(request, env, path.split("/")[2]);
-    if (path.startsWith("/email-prompts/") && request.method === "DELETE") return deleteEmailPrompt(env, path.split("/")[2]);
-    if (path === "/users" && request.method === "GET") return listUsers(env);
-    if (path.startsWith("/users/") && request.method === "GET") return getUserDetail(env, decodeURIComponent(path.split("/")[2]));
-    if (path === "/api/users" && request.method === "GET") return getUsersAPI(env);
-    if (path === "/requests" && request.method === "GET") return listRequests(env);
-    if (path.startsWith("/requests/") && request.method === "GET") return getRequestDetail(env, path.split("/")[2]);
     if (path === "/status/postmark-inbound" && request.method === "GET") return getPostmarkInboundStatus(env);
-    if (path === "/logs" && request.method === "GET") return getProcessingLogs(env);
-    if (path === "/api/logs" && request.method === "GET") return getProcessingLogsAPI(env, url.searchParams.get('message_id'));
 
     // Default route - show dashboard
     const stmt = env.DB.prepare("SELECT * FROM messages ORDER BY received_at DESC LIMIT 50");
