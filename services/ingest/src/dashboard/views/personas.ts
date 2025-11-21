@@ -89,7 +89,8 @@ export function renderPersonaEdit(persona: any | null, isNew: boolean = false): 
             <label for="model" class="form-label">Model (optional)</label>
             <select id="model" name="model" class="form-select">
               <option value="">Use default</option>
-              <option value="gpt-5.1" ${model === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1</option>
+              <option value="gpt-5.1" ${model === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1 (Advanced)</option>
+              <option value="gpt-5-mini" ${model === 'gpt-5-mini' ? 'selected' : ''}>GPT-5-mini (Fast)</option>
             </select>
           </div>
 
