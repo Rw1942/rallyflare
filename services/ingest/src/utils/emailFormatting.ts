@@ -1,19 +1,14 @@
 /**
- * Email Formatter - Converts AI responses to email-safe HTML
- * 
- * Handles 3 input formats:
- * 1. Plain text (most common)
- * 2. Markdown (common from GPT-5.1)
- * 3. HTML (rare, but possible)
- * 
- * Strategy: Detect format, convert to clean HTML with inline styles
+ * Email Formatting Utilities
+ * Handles content transformation and footer generation for outbound emails
  */
+
+// ============ Content Formatting (AI response → Email HTML) ============
 
 /**
  * Detect if text contains markdown formatting
  */
 function isMarkdown(text: string): boolean {
-  // Look for common markdown patterns
   const markdownPatterns = [
     /^#{1,6}\s/m,           // Headers: # ## ###
     /\*\*[^*]+\*\*/,         // Bold: **text**
@@ -33,26 +28,20 @@ function isMarkdown(text: string): boolean {
  * Detect if text is HTML
  */
 function isHtml(text: string): boolean {
-  // Simple check: contains HTML tags
   return /<[a-z][\s\S]*>/i.test(text);
 }
 
 /**
  * Convert markdown table to HTML table
- * Handles: | Header | Header |\n|---|---|\n| Cell | Cell |
  */
 function convertMarkdownTable(tableText: string): string {
   const lines = tableText.trim().split('\n');
-  if (lines.length < 3) return tableText; // Not a valid table
+  if (lines.length < 3) return tableText;
   
-  // First line = headers, second line = separator (---), rest = rows
   const headerLine = lines[0];
   const dataLines = lines.slice(2); // Skip separator line
-  
-  // Parse headers
   const headers = headerLine.split('|').map(h => h.trim()).filter(h => h);
   
-  // Build HTML table
   let html = '<table style="border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px;">';
   
   // Header row
@@ -66,7 +55,7 @@ function convertMarkdownTable(tableText: string): string {
   html += '<tbody>';
   dataLines.forEach(line => {
     const cells = line.split('|').map(c => c.trim()).filter(c => c);
-    if (cells.length === 0) return; // Skip empty lines
+    if (cells.length === 0) return;
     
     html += '<tr>';
     cells.forEach(cell => {
@@ -81,52 +70,45 @@ function convertMarkdownTable(tableText: string): string {
 
 /**
  * Convert markdown to email-safe HTML
- * Handles: headers, bold, italic, code, links, lists, and TABLES
  */
 function markdownToHtml(text: string): string {
   let html = text;
   
-  // TABLES FIRST (before other processing)
-  // Match: line with pipes, followed by separator line, followed by data lines
+  // Tables first (before other processing)
   html = html.replace(/^(\|.+\|)\n(\|[\s:-]+\|)\n((?:\|.+\|\n?)+)/gm, (match) => {
     return convertMarkdownTable(match);
   });
   
-  // Code blocks BEFORE inline code (to avoid double processing)
+  // Code blocks before inline code
   html = html.replace(/```[\s\S]*?```/g, (match) => {
     const code = match.replace(/```/g, '').trim();
     return `<pre style="background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; font-family: monospace; font-size: 12px; margin: 12px 0; line-height: 1.4;">${code}</pre>`;
   });
   
-  // Headers (### before ## before #)
+  // Headers
   html = html.replace(/^### (.+)$/gm, '<h3 style="font-size: 16px; font-weight: 600; color: #333; margin: 16px 0 8px;">$1</h3>');
   html = html.replace(/^## (.+)$/gm, '<h2 style="font-size: 18px; font-weight: 600; color: #333; margin: 18px 0 10px;">$1</h2>');
   html = html.replace(/^# (.+)$/gm, '<h1 style="font-size: 20px; font-weight: 600; color: #333; margin: 20px 0 12px;">$1</h1>');
   
-  // Bold **text**
+  // Bold and italic
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="font-weight: 600;">$1</strong>');
-  
-  // Italic *text* (after bold to avoid conflicts)
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
   
-  // Inline code `code`
+  // Inline code
   html = html.replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px;">$1</code>');
   
-  // Links [text](url)
+  // Links
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #007bff; text-decoration: none;">$1</a>');
   
-  // Unordered lists: - item or * item
+  // Lists
   html = html.replace(/^(\s*)[-*+]\s+(.+)$/gm, '$1• $2');
-  
-  // Ordered lists: 1. item (preserve numbering)
   html = html.replace(/^(\s*)(\d+)\.\s+(.+)$/gm, '$1$2. $3');
   
-  // Paragraphs: double newlines → paragraph breaks
+  // Paragraphs
   const paragraphs = html.split('\n\n');
   html = paragraphs.map(para => {
     para = para.trim();
     if (!para) return '';
-    // Don't wrap block elements (tables, headers, code)
     if (para.startsWith('<table') || para.startsWith('<h') || para.startsWith('<pre')) {
       return para;
     }
@@ -142,20 +124,96 @@ function markdownToHtml(text: string): string {
 export function formatForEmail(aiResponse: string): string {
   if (!aiResponse) return '';
   
-  // Detect format
   if (isHtml(aiResponse)) {
-    // Already HTML - just ensure inline styles (basic cleanup)
     return aiResponse;
   }
   
   if (isMarkdown(aiResponse)) {
-    // Convert markdown to HTML
     return markdownToHtml(aiResponse);
   }
   
-  // Plain text - wrap in styled div with line breaks
+  // Plain text fallback
   return '<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; white-space: pre-wrap;">' + 
     aiResponse.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
     '</div>';
+}
+
+// ============ Email Footer (Processing Metrics) ============
+
+/**
+ * Generate email footer with processing metrics
+ * Returns both text and HTML versions for email client compatibility
+ */
+export function generateEmailFooter(
+  totalTimeMs: number,
+  ingestTimeMs: number,
+  attachmentTimeMs: number,
+  openaiUploadTimeMs: number,
+  aiTimeMs: number,
+  inputTokens: number,
+  outputTokens: number,
+  costInDollars: number,
+  reasoningTokens?: number,
+  cachedTokens?: number,
+  model?: string,
+  serviceTier?: string,
+  reasoningEffort?: string
+): { text: string; html: string } {
+  
+  const totalTimeDisplay = totalTimeMs >= 1000 
+    ? `${(totalTimeMs / 1000).toFixed(2)} seconds`
+    : `${totalTimeMs}ms`;
+
+  // Build bullet list of processing steps
+  const bullets: string[] = [`Received and parsed your email: ${ingestTimeMs}ms`];
+  
+  if (attachmentTimeMs > 0) {
+    bullets.push(`Saved attachments to storage: ${attachmentTimeMs}ms`);
+  }
+  
+  if (openaiUploadTimeMs > 0) {
+    bullets.push(`Uploaded files for AI analysis: ${openaiUploadTimeMs}ms`);
+  }
+  
+  bullets.push(`AI generated response: ${aiTimeMs}ms`);
+
+  // Token usage breakdown
+  let tokenUsage = `read ${inputTokens.toLocaleString()} tokens`;
+  if (cachedTokens && cachedTokens > 0) {
+    tokenUsage += ` (${cachedTokens.toLocaleString()} cached)`;
+  }
+  tokenUsage += `, generated ${outputTokens.toLocaleString()} tokens`;
+  if (reasoningTokens && reasoningTokens > 0) {
+    tokenUsage += ` (${reasoningTokens.toLocaleString()} reasoning)`;
+  }
+
+  // AI configuration
+  const aiConfig: string[] = [];
+  if (model) aiConfig.push(model);
+  if (reasoningEffort) aiConfig.push(`${reasoningEffort} effort`);
+  if (serviceTier) aiConfig.push(serviceTier);
+  const aiConfigStr = aiConfig.length > 0 ? ` • ${aiConfig.join(', ')}` : '';
+
+  // Plain text version
+  const text = `\n\n---\nRally processed this email in ${totalTimeDisplay}:\n` +
+    bullets.map(b => `• ${b}`).join('\n') +
+    `\n\nAI Usage: $${costInDollars.toFixed(4)} (${tokenUsage})${aiConfigStr}`;
+
+  // HTML version
+  const html = `
+<div style="margin-top: 24px;">
+<table style="padding-top: 12px; border-top: 1px solid #e0e0e0; font-family: Arial, sans-serif; font-size: 11px; color: #888888; width: 100%;">
+  <tr>
+    <td colspan="2" style="padding-bottom: 8px; font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</td>
+  </tr>
+  ${bullets.map(b => `<tr><td style="padding: 2px 0; padding-left: 8px; vertical-align: top;">&bull;</td><td style="padding: 2px 0;">${b}</td></tr>`).join('')}
+  <tr>
+    <td colspan="2" style="padding-top: 8px; font-weight: 600; color: #666666;">AI Usage: <span style="font-weight: 400; color: #888888;">$${costInDollars.toFixed(4)} (${tokenUsage})${aiConfigStr}</span></td>
+  </tr>
+</table>
+</div>
+`;
+
+  return { text, html };
 }
 

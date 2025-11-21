@@ -5,8 +5,7 @@
  * Handles: content formatting + footer + proper container wrapping.
  */
 
-import { formatForEmail } from './emailFormatter';
-import { generateEmailFooter } from './footer';
+import { formatForEmail, generateEmailFooter } from './emailFormatting';
 
 /**
  * Processing metrics shown in email footer and saved to messages table
