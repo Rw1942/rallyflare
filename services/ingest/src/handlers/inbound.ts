@@ -55,9 +55,22 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     // We need to store all participants to allow looking up history for CC'd users
     const participantsToInsert: { kind: string, name: string, email: string }[] = [];
 
-    if (postmarkData.FromFull) {
-      participantsToInsert.push({ kind: 'from', name: postmarkData.FromFull.Name, email: postmarkData.FromFull.Email });
-    }
+    // Helper validation to ensure 'kind' matches table constraint: 'to', 'cc', 'bcc' (though Postmark doesn't send BCC usually)
+    // We map 'from' to 'to' or handle it separately? 
+    // The schema check is CHECK(kind IN ('to','cc','bcc')). 'from' is NOT allowed.
+    // We should map 'from' to a valid kind or update the schema. 
+    // Since 'from' is the sender, conceptually they are a participant.
+    // However, the current schema likely intended to track recipients of the message (To/Cc).
+    // If we want to track the sender in this table for history lookup, we need to update the schema or map it.
+    // Given we query this table for ANY participation, we should probably add 'from' to the allowed Check constraint or map it.
+    // BUT, we cannot easily change a CHECK constraint in SQLite/D1 without a complex migration (recreate table).
+    // Strategy: For now, we will ONLY insert To and Cc into the participants table to satisfy the constraint.
+    // The Sender is already tracked in the 'messages' table (from_email column).
+    // Our history query in index.ts joins participants OR checks from_email/recipient_email, so we are covered for the sender via the messages table.
+    
+    // if (postmarkData.FromFull) {
+    //   participantsToInsert.push({ kind: 'from', name: postmarkData.FromFull.Name, email: postmarkData.FromFull.Email });
+    // }
     
     if (postmarkData.ToFull) {
       for (const to of postmarkData.ToFull) {
