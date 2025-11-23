@@ -32,7 +32,7 @@ export function renderSettings(settings: any): string {
 
            <div class="form-group">
             <label class="form-label">Max Tokens</label>
-            <input type="number" class="form-input" name="max_output_tokens" value="${settings?.max_output_tokens || 4000}">
+            <input type="number" class="form-input" name="max_output_tokens" value="${settings?.max_output_tokens || 8000}">
           </div>
 
           <button type="submit" class="btn btn-primary btn-block">Save Global Settings</button>

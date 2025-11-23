@@ -22,6 +22,7 @@ export default class MailerService extends WorkerEntrypoint<Env> {
                 From: fromWithName,
                 ReplyTo: reply.replyTo,
                 To: reply.to,
+                Cc: reply.cc,
                 Subject: reply.subject,
                 MessageStream: "outbound",
                 TextBody: reply.textBody,

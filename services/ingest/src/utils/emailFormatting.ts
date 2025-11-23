@@ -3,6 +3,98 @@
  * Handles content transformation and footer generation for outbound emails
  */
 
+import type { PostmarkInboundMessage } from "shared/types";
+
+// ============ Address Formatting ============
+
+export interface EmailContact {
+  Email: string;
+  Name?: string;
+}
+
+/**
+ * Format "Name" <email> or just email
+ */
+export function formatAddress(contact: EmailContact): string {
+  if (!contact) return "";
+  if (contact.Name && contact.Name.trim().length > 0) {
+    return `"${contact.Name}" <${contact.Email}>`;
+  }
+  return contact.Email;
+}
+
+/**
+ * Helper to normalize email for deduping
+ */
+export function normalizeEmail(email: string | undefined | null): string {
+  return (email || "").trim().toLowerCase();
+}
+
+/**
+ * Calculates "Reply All" recipients based on the inbound message.
+ * 
+ * @param postmarkData The full inbound message object
+ * @param rallyEmailAddress The email address of the current Rally instance (to remove from recipients)
+ * @param originalSenderEmail The normalized email of the original sender (the person who wrote the email)
+ * @returns An object containing `to` and `cc` strings ready for the mailer
+ */
+export function calculateReplyRecipients(
+  postmarkData: PostmarkInboundMessage, 
+  rallyEmailAddress: string,
+  originalSenderEmail: string
+): { to: string; cc: string | undefined } {
+  const from = postmarkData.FromFull;
+  const toList = postmarkData.ToFull || [];
+  const ccList = postmarkData.CcFull || [];
+
+  const allParticipantsMap = new Map<string, EmailContact>();
+
+  function addContact(contact?: EmailContact) {
+    if (!contact || !contact.Email) return;
+    const key = normalizeEmail(contact.Email);
+    if (!key) return;
+    if (!allParticipantsMap.has(key)) {
+      allParticipantsMap.set(key, contact);
+    }
+  }
+
+  addContact(from);
+  for (const t of toList) addContact(t);
+  for (const c of ccList) addContact(c);
+
+  // Remove Rally’s own sending address
+  const rallyKey = normalizeEmail(rallyEmailAddress);
+  if (rallyKey) allParticipantsMap.delete(rallyKey);
+
+  // Remove OriginalRecipient if different (and not the rally address itself)
+  const originalRecipientKey = normalizeEmail(postmarkData.OriginalRecipient);
+  if (originalRecipientKey && originalRecipientKey !== rallyKey) {
+    allParticipantsMap.delete(originalRecipientKey);
+  }
+
+  // To: Original Sender
+  const originalSenderKey = normalizeEmail(originalSenderEmail);
+  
+  // Try to get the best contact info for the original sender from our map
+  // Fallback to constructing a simple contact if FromFull was missing but we have the email string
+  const originalSender = allParticipantsMap.get(originalSenderKey) || 
+    (from ? from : { Email: originalSenderEmail, Name: "" });
+    
+  // Remove sender from the "everyone else" list
+  allParticipantsMap.delete(originalSenderKey);
+
+  const toHeader = formatAddress(originalSender);
+  const ccHeader = Array.from(allParticipantsMap.values())
+    .map(formatAddress)
+    .filter(Boolean)
+    .join(", ");
+
+  return { 
+    to: toHeader, 
+    cc: ccHeader || undefined 
+  };
+}
+
 // ============ Content Formatting (AI response → Email HTML) ============
 
 /**
@@ -201,14 +293,14 @@ export function generateEmailFooter(
 
   // HTML version
   const html = `
-<div style="margin-top: 24px;">
-<table style="padding-top: 12px; border-top: 1px solid #e0e0e0; font-family: Arial, sans-serif; font-size: 11px; color: #888888; width: 100%;">
+<div style="margin-top: 16px;">
+<table style="padding-top: 8px; border-top: 1px solid #e0e0e0; font-family: Arial, sans-serif; font-size: 11px; color: #888888; width: 100%; line-height: 1.3;">
   <tr>
-    <td colspan="2" style="padding-bottom: 8px; font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</td>
+    <td colspan="2" style="padding-bottom: 4px; font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</td>
   </tr>
-  ${bullets.map(b => `<tr><td style="padding: 2px 0; padding-left: 8px; vertical-align: top;">&bull;</td><td style="padding: 2px 0;">${b}</td></tr>`).join('')}
+  ${bullets.map(b => `<tr><td style="padding: 1px 0; padding-left: 8px; vertical-align: top;">&bull;</td><td style="padding: 1px 0;">${b}</td></tr>`).join('')}
   <tr>
-    <td colspan="2" style="padding-top: 8px; font-weight: 600; color: #666666;">AI Usage: <span style="font-weight: 400; color: #888888;">$${costInDollars.toFixed(4)} (${tokenUsage})${aiConfigStr}</span></td>
+    <td colspan="2" style="padding-top: 4px; font-weight: 600; color: #666666;">AI Usage: <span style="font-weight: 400; color: #888888;">$${costInDollars.toFixed(4)} (${tokenUsage})${aiConfigStr}</span></td>
   </tr>
 </table>
 </div>
@@ -216,4 +308,3 @@ export function generateEmailFooter(
 
   return { text, html };
 }
-

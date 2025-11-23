@@ -122,7 +122,7 @@ export function renderPersonaEdit(persona: any | null, isNew: boolean = false): 
               name="max_output_tokens" 
               class="form-input" 
               value="${escapeHtml(String(maxOutputTokens))}"
-              placeholder="4000"
+              placeholder="8000"
               min="100"
               max="16000"
             >

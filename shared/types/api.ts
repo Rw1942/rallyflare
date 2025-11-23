@@ -10,6 +10,7 @@ import type { PostmarkInboundMessage } from './common';
 export interface EmailReply {
     from: string; // The Rally email address that received the original message
     to: string;
+    cc?: string;
     subject: string;
     textBody: string;
     htmlBody: string;

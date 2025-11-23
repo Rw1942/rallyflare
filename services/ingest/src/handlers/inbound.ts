@@ -1,5 +1,6 @@
 import { PostmarkInboundMessage, EmailReply, AiRequest, AiResponse } from "shared/types";
 import { hasImages, flattenHtml, appendAttachments, calculateCost } from "../utils/index";
+import { formatAddress, normalizeEmail, calculateReplyRecipients } from "../utils/emailFormatting";
 import { buildEmailWithFooter, buildErrorEmail, buildSimpleEmail } from "../utils/emailTemplate";
 import { mergeSettings, type ProjectSettings, type EmailSettings } from "../utils/settingsMerge";
 import type { Env } from "../types";
@@ -50,7 +51,37 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       'inbound', rallyEmailAddress, senderEmail
     ).run();
 
-    // 2. Handle Attachments
+    // 2. Store Participants
+    // We need to store all participants to allow looking up history for CC'd users
+    const participantsToInsert: { kind: string, name: string, email: string }[] = [];
+
+    if (postmarkData.FromFull) {
+      participantsToInsert.push({ kind: 'from', name: postmarkData.FromFull.Name, email: postmarkData.FromFull.Email });
+    }
+    
+    if (postmarkData.ToFull) {
+      for (const to of postmarkData.ToFull) {
+        participantsToInsert.push({ kind: 'to', name: to.Name, email: to.Email });
+      }
+    }
+
+    if (postmarkData.CcFull) {
+      for (const cc of postmarkData.CcFull) {
+        participantsToInsert.push({ kind: 'cc', name: cc.Name, email: cc.Email });
+      }
+    }
+
+    // Batch insert participants
+    if (participantsToInsert.length > 0) {
+      const stmt = env.DB.prepare(`
+        INSERT INTO participants (message_id, kind, name, email) VALUES (?, ?, ?, ?)
+      `);
+      await env.DB.batch(
+        participantsToInsert.map(p => stmt.bind(internalId, p.kind, p.name, p.email.toLowerCase()))
+      );
+    }
+
+    // 3. Handle Attachments
     let attachmentTimeMs = 0;
     if (postmarkData.Attachments && postmarkData.Attachments.length > 0) {
       for (const attachment of postmarkData.Attachments) {
@@ -96,7 +127,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     const projectSettings = await env.DB.prepare(
       "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default' LIMIT 1"
     ).first<ProjectSettings>();
-    
+
     const emailSettings = await env.DB.prepare(
       "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens FROM email_settings WHERE email_address = ? LIMIT 1"
     ).bind(rallyEmailAddress).first<EmailSettings>();
@@ -158,6 +189,44 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
       const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
 
+      // --- Reply All Logic ---
+      // Calculate recipients using the helper (encapsulates To/Cc logic and deduplication)
+      const recipients = calculateReplyRecipients(postmarkData, rallyEmailAddress, senderEmail);
+
+      // Ensure all recipients (To and Cc) are tracked as users
+      // This happens asynchronously to not block the reply
+      const allRecipients = [
+        ...(postmarkData.ToFull || []),
+        ...(postmarkData.CcFull || []),
+        postmarkData.FromFull
+      ].filter(Boolean);
+
+      for (const contact of allRecipients) {
+        if (contact && contact.Email) {
+          const email = contact.Email.toLowerCase();
+          // Skip if it's the Rally address itself
+          if (email === rallyEmailAddress) continue;
+          
+          // Fire-and-forget user creation (INSERT OR IGNORE style handled by DB trigger/logic if possible, 
+          // but here we rely on the users table existing. The trigger only auto-populates on MESSAGE insert.
+          // So we might want to explicitly ensure they exist if we want them tracked before they send a message themselves.)
+          // However, the requirement is "created as new users". 
+          // The current schema has a trigger that auto-populates users when a message is inserted.
+          // But that only covers the SENDER. We need to track RECIPIENTS too.
+          
+          // We'll verify if we need an explicit INSERT for these users.
+          // The 'users' table is: email (PK), first_seen, last_seen, stats...
+          // Let's add them if they don't exist.
+          env.DB.prepare(`
+            INSERT INTO users (email, first_seen, last_seen)
+            VALUES (?, ?, ?)
+            ON CONFLICT(email) DO UPDATE SET last_seen = ?
+          `).bind(email, receivedAt, receivedAt, receivedAt).run().catch(err => {
+            console.error(`Failed to track user ${email}:`, err);
+          });
+        }
+      }
+
       const aiTime = aiResponse.aiResponseTimeMs || 0;
       openaiUploadTimeMs = aiResponse.openaiUploadTimeMs || 0;
       const totalTimeSoFar = Date.now() - processingStartTime;
@@ -193,7 +262,8 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       
       const emailReply: EmailReply = {
         from: replyToAddress,
-        to: senderEmail,
+        to: recipients.to,
+        cc: recipients.cc,
         subject: `Re: ${postmarkData.Subject}`,
         textBody,
         htmlBody,

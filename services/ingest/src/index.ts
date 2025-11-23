@@ -80,16 +80,27 @@ export default {
         const limit = 50;
         const offset = (page - 1) * limit;
 
-        // Count user messages - Unified query using recipient_email
-        // recipient_email tracks the user involved regardless of direction
-        const { count } = await env.DB.prepare(
-          "SELECT COUNT(*) as count FROM messages WHERE lower(recipient_email) = ?"
-        ).bind(email).first() as any || { count: 0 };
+        // Count user messages - Unified query using participants table and legacy columns
+        const { count } = await env.DB.prepare(`
+          SELECT COUNT(DISTINCT m.id) as count 
+          FROM messages m
+          LEFT JOIN participants p ON m.id = p.message_id
+          WHERE lower(p.email) = ?1 
+             OR lower(m.recipient_email) = ?1 
+             OR lower(m.from_email) = ?1
+        `).bind(email).first() as any || { count: 0 };
         const totalPages = Math.ceil(count / limit);
 
-        const { results: history } = await env.DB.prepare(
-          "SELECT * FROM messages WHERE lower(recipient_email) = ? ORDER BY received_at DESC LIMIT ? OFFSET ?"
-        ).bind(email, limit, offset).all();
+        const { results: history } = await env.DB.prepare(`
+          SELECT DISTINCT m.* 
+          FROM messages m
+          LEFT JOIN participants p ON m.id = p.message_id
+          WHERE lower(p.email) = ?1 
+             OR lower(m.recipient_email) = ?1 
+             OR lower(m.from_email) = ?1
+          ORDER BY m.received_at DESC 
+          LIMIT ?2 OFFSET ?3
+        `).bind(email, limit, offset).all();
 
         const settings = await env.DB.prepare("SELECT * FROM email_settings WHERE email_address = ?").bind(email).first();
         
@@ -120,10 +131,10 @@ export default {
       // Personas - list
       if (path === "/personas" && method === "GET") {
         const { results } = await env.DB.prepare(`
-          SELECT 
-            es.*, 
-            (SELECT COUNT(*) FROM messages WHERE lower(email_address) = es.email_address) as message_count
-          FROM email_settings es 
+          SELECT
+            es.*,
+            (SELECT COUNT(*) FROM messages WHERE email_address = es.email_address) as message_count
+          FROM email_settings es
           ORDER BY es.email_address ASC
         `).all();
         return html(renderPersonas(safeResults(results)));
@@ -167,11 +178,12 @@ export default {
       // Personas - create
       if (path === "/personas" && method === "POST") {
         const formData = await request.formData();
+        const emailAddress = (formData.get('email_address') as string)?.toLowerCase();
         await env.DB.prepare(`
           INSERT INTO email_settings (email_address, system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens)
           VALUES (?, ?, ?, ?, ?, ?)
         `).bind(
-          formData.get('email_address'),
+          emailAddress,
           formData.get('system_prompt') || null,
           formData.get('model') || null,
           formData.get('reasoning_effort') || null,

@@ -50,7 +50,7 @@ export function mergeSettings(
     model: 'gpt-5.1',
     reasoning_effort: 'medium',
     text_verbosity: 'low',
-    max_output_tokens: 4000,
+    max_output_tokens: 8000,
     cost_input_per_1m: 2.50,
     cost_output_per_1m: 10.00
   };
@@ -58,9 +58,18 @@ export function mergeSettings(
   // Start with project settings (or fallbacks)
   const base = projectSettings || defaults;
 
+  // System prompt is special: persona prompts should *extend* the global
+  // project prompt (which encodes formatting rules like "no Subject: headers"),
+  // not replace it entirely. This keeps the UX consistent while letting
+  // personas change tone/behavior.
+  const personaPrompt = emailSettings?.system_prompt?.trim();
+  const mergedSystemPrompt = personaPrompt
+    ? `${base.system_prompt}\n\n---\nPERSONA INSTRUCTIONS:\n${personaPrompt}`
+    : base.system_prompt;
+
   // Override with email-specific settings where present
   return {
-    system_prompt: emailSettings?.system_prompt ?? base.system_prompt,
+    system_prompt: mergedSystemPrompt,
     model: emailSettings?.model ?? base.model,
     reasoningEffort: emailSettings?.reasoning_effort ?? base.reasoning_effort,
     textVerbosity: emailSettings?.text_verbosity ?? base.text_verbosity,
