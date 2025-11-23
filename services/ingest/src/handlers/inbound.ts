@@ -23,9 +23,28 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     internalId = crypto.randomUUID();
     const receivedAt = new Date().toISOString();
 
-    // 1. Store Message in D1
+    // 0. Idempotency Check & Loop Protection
+    // Check if message already processed (Postmark retry)
+    if (postmarkData.MessageID) {
+      const existing = await env.DB.prepare("SELECT id FROM messages WHERE postmark_message_id = ?").bind(postmarkData.MessageID).first();
+      if (existing) {
+        console.log("Duplicate message (Postmark retry), skipping:", postmarkData.MessageID);
+        return new Response(JSON.stringify({ success: true, skipped: true }), { headers: { "content-type": "application/json" } });
+      }
+    }
+
+    // Loop protection: If the sender is one of our own addresses, ignore it.
     const rallyEmailAddress = extractRallyEmailAddress(postmarkData).toLowerCase();
     const senderEmail = (postmarkData.FromFull?.Email || postmarkData.From || "").toLowerCase();
+    
+    if (senderEmail === rallyEmailAddress) {
+        console.log("Loop detected (sender is Rally address), skipping:", senderEmail);
+        return new Response(JSON.stringify({ success: true, skipped: true, reason: "loop_detected" }), { headers: { "content-type": "application/json" } });
+    }
+
+    // 1. Store Message in D1
+    // const rallyEmailAddress = extractRallyEmailAddress(postmarkData).toLowerCase(); // Already extracted above
+    // const senderEmail = (postmarkData.FromFull?.Email || postmarkData.From || "").toLowerCase(); // Already extracted above
 
     let textContent = postmarkData.TextBody || "";
     if (hasImages(postmarkData) || !textContent) {
@@ -340,6 +359,9 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
             const originalReferences = postmarkData.Headers?.find((h: any) => h.Name === "References")?.Value || "";
             const referencesValue = originalReferences ? `${originalReferences} ${postmarkData.MessageID}` : postmarkData.MessageID;
             
+            // Calculate reply-all recipients even for error emails
+            const recipients = calculateReplyRecipients(postmarkData, replyToAddress, recipient);
+
             const { textBody, htmlBody } = buildErrorEmail(
               "We encountered an error processing your email.",
               error instanceof Error ? error.message : String(error)
@@ -347,7 +369,8 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
 
             const errorReply: EmailReply = {
                 from: replyToAddress || "no-reply@rallyflare.com",
-                to: recipient,
+                to: recipients.to,
+                cc: recipients.cc,
                 subject: `Re: ${postmarkData.Subject || "Your Request"}`,
                 textBody,
                 htmlBody,
