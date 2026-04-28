@@ -157,7 +157,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
 
     // 4. Get Settings
     const projectSettings = await env.DB.prepare(
-      "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, cost_input_per_1m, cost_output_per_1m FROM project_settings WHERE project_slug = 'default' LIMIT 1"
+      "SELECT system_prompt, model, reasoning_effort, text_verbosity, max_output_tokens, cost_input_per_1m, cost_output_per_1m, web_search_enabled, web_search_context_size FROM project_settings WHERE project_slug = 'default' LIMIT 1"
     ).first<ProjectSettings>();
 
     const emailSettings = await env.DB.prepare(
@@ -202,7 +202,9 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       textVerbosity: settings.textVerbosity,
       maxOutputTokens: settings.maxOutputTokens,
       conversationHistory,
-      processedTextContent: textContent
+      processedTextContent: textContent,
+      webSearchEnabled: settings.webSearchEnabled,
+      webSearchContextSize: settings.webSearchContextSize,
     };
 
     const aiResponse = await env.AI.generateReply(aiRequest);
@@ -320,7 +322,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       processing_time_ms = ?, ai_response_time_ms = ?, sent_at = ?, openai_response_id = ?,
       attachment_time_ms = ?, mailer_time_ms = ?, ingest_time_ms = ?, openai_upload_time_ms = ?, cost_dollars = ?,
       reasoning_tokens = ?, cached_tokens = ?, model = ?, service_tier = ?, reasoning_effort = ?,
-      text_verbosity = ?
+      text_verbosity = ?, web_search_used = ?, web_search_source_count = ?
       WHERE id = ?
     `).bind(
       aiResponse.summary, aiResponse.reply, aiResponse.tokensInput || null, aiResponse.tokensOutput || null,
@@ -329,6 +331,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       aiResponse.reasoningTokens || null, aiResponse.cachedTokens || null, aiRequest.model,
       aiResponse.serviceTier || null, aiResponse.reasoningEffort || null,
       aiResponse.textVerbosity || null,
+      aiResponse.webSearchUsed ? 1 : 0, aiResponse.webSearchSourceCount || null,
       internalId
     ).run();
 

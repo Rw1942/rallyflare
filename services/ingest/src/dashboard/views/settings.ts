@@ -37,6 +37,25 @@ export function renderSettings(settings: any): string {
             <input type="number" class="form-input" name="max_output_tokens" value="${settings?.max_output_tokens || 8000}">
           </div>
 
+          <hr style="margin: 1.5rem 0; border-color: var(--border)">
+
+          <div class="form-group">
+            <label class="form-label" style="display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" name="web_search_enabled" value="1" ${settings?.web_search_enabled ? 'checked' : ''}>
+              Enable Web Search
+            </label>
+            <div class="text-muted text-sm" style="margin-top: 0.25rem">When enabled, AI can search the web for up-to-date information before replying. On by default.</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Web Search Context Size</label>
+            <select class="form-select" name="web_search_context_size">
+              <option value="low" ${settings?.web_search_context_size === 'low' || !settings?.web_search_context_size ? 'selected' : ''}>Low (fastest, lowest cost)</option>
+              <option value="medium" ${settings?.web_search_context_size === 'medium' ? 'selected' : ''}>Medium (balanced)</option>
+              <option value="high" ${settings?.web_search_context_size === 'high' ? 'selected' : ''}>High (most comprehensive)</option>
+            </select>
+          </div>
+
           <button type="submit" class="btn btn-primary btn-block">Save Global Settings</button>
         </form>
       </div>

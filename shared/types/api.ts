@@ -40,6 +40,8 @@ export interface AiRequest {
     }[];
     requestContext?: any;
     processedTextContent?: string; // The processed text body (flattened HTML + attachment list)
+    webSearchEnabled?: boolean;
+    webSearchContextSize?: "low" | "medium" | "high";
 }
 
 /**
@@ -60,5 +62,7 @@ export interface AiResponse {
     serviceTier?: string; // OpenAI service tier used (e.g., "default", "auto")
     reasoningEffort?: string; // Reasoning effort level used
     textVerbosity?: string; // Text verbosity level used
+    webSearchUsed?: boolean;
+    webSearchSourceCount?: number;
 }
 

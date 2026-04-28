@@ -15,6 +15,8 @@ export interface ProjectSettings {
   max_output_tokens: number;
   cost_input_per_1m: number;
   cost_output_per_1m: number;
+  web_search_enabled: number;  // 0 or 1 (SQLite boolean)
+  web_search_context_size: string;
 }
 
 export interface EmailSettings {
@@ -33,6 +35,8 @@ export interface MergedSettings {
   maxOutputTokens: number;
   costInputPer1m: number;
   costOutputPer1m: number;
+  webSearchEnabled: boolean;
+  webSearchContextSize: "low" | "medium" | "high";
 }
 
 /**
@@ -52,7 +56,9 @@ export function mergeSettings(
     text_verbosity: 'low',
     max_output_tokens: 8000,
     cost_input_per_1m: 2.50,
-    cost_output_per_1m: 15.00
+    cost_output_per_1m: 15.00,
+    web_search_enabled: 1,
+    web_search_context_size: 'low',
   };
 
   // Start with project settings (or fallbacks)
@@ -67,6 +73,12 @@ export function mergeSettings(
     ? `${base.system_prompt}\n\n---\nPERSONA INSTRUCTIONS:\n${personaPrompt}`
     : base.system_prompt;
 
+  const validContextSizes = ["low", "medium", "high"] as const;
+  const rawContextSize = base.web_search_context_size;
+  const contextSize = validContextSizes.includes(rawContextSize as any)
+    ? rawContextSize as "low" | "medium" | "high"
+    : "low";
+
   // Override with email-specific settings where present
   return {
     system_prompt: mergedSystemPrompt,
@@ -75,7 +87,9 @@ export function mergeSettings(
     textVerbosity: emailSettings?.text_verbosity ?? base.text_verbosity,
     maxOutputTokens: emailSettings?.max_output_tokens ?? base.max_output_tokens,
     costInputPer1m: base.cost_input_per_1m,
-    costOutputPer1m: base.cost_output_per_1m
+    costOutputPer1m: base.cost_output_per_1m,
+    webSearchEnabled: !!base.web_search_enabled,
+    webSearchContextSize: contextSize,
   };
 }
 

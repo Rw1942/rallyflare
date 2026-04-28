@@ -127,14 +127,19 @@ export default {
       // Settings - update
       if (path === "/settings" && method === "POST") {
         const formData = await request.formData();
+        // Checkbox sends "1" when checked, absent when unchecked
+        const webSearchEnabled = formData.get('web_search_enabled') === '1' ? 1 : 0;
         await env.DB.prepare(`
-          UPDATE project_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, max_output_tokens = ?
+          UPDATE project_settings SET system_prompt = ?, model = ?, reasoning_effort = ?, max_output_tokens = ?,
+          web_search_enabled = ?, web_search_context_size = ?
           WHERE project_slug = 'default'
         `).bind(
           formData.get('system_prompt'),
           sanitizeModel(formData.get('model')),
           formData.get('reasoning_effort'),
-          formData.get('max_output_tokens')
+          formData.get('max_output_tokens'),
+          webSearchEnabled,
+          formData.get('web_search_context_size') || 'low'
         ).run();
         return Response.redirect(url.origin + "/settings", 303);
       }

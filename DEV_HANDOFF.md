@@ -117,6 +117,60 @@
 3. Confirm footer reads `---` then stats only, no "Rally" mentions.
 4. Trigger a failure path (missing system prompt) — verify the simple email body has no styled wrapper.
 
+## Phase 4: Web Search Integration (April 2026)
+
+#### 14. OpenAI Web Search Tool Support (`services/ai/src/index.ts`)
+- Added `callOpenAI()` private helper that encapsulates the HTTP call and returns parsed JSON or null on failure.
+- When `webSearchEnabled` is true in the request, the Responses API payload includes `tools: [{ type: "web_search", search_context_size }]` and `include: ["web_search_call.action.sources"]` for observability.
+- **Deterministic fallback:** if the web-search-enabled request fails, the AI service automatically retries the same request without the `tools`/`include` fields so replies always ship.
+- Response parser now detects `web_search_call` output items and counts source URLs.
+- **Why:** Enables the assistant to answer recency-sensitive questions ("What happened today?") with cited web sources, while keeping email flow resilient to tool failures.
+
+#### 15. Web Search Settings Flow (`settingsMerge.ts`, `inbound.ts`, `shared/types/api.ts`)
+- `AiRequest` gained optional `webSearchEnabled` and `webSearchContextSize` fields.
+- `AiResponse` gained optional `webSearchUsed` and `webSearchSourceCount` fields.
+- `ProjectSettings` now includes `web_search_enabled` (SQLite integer) and `web_search_context_size` columns.
+- `MergedSettings` exposes these as `webSearchEnabled: boolean` and `webSearchContextSize: "low" | "medium" | "high"`.
+- The inbound handler SELECT now fetches the two new columns and passes them through to the AI request.
+- The D1 UPDATE after AI response now persists `web_search_used` and `web_search_source_count` on the message record.
+
+#### 16. Dashboard Web Search Controls (`settings.ts`, `index.ts`)
+- Global Settings page now includes an "Enable Web Search" checkbox and a "Web Search Context Size" dropdown (`low`/`medium`/`high`).
+- The POST `/settings` handler reads both fields from formData and persists them.
+- Default: ON, context size = `low` (fastest, cheapest).
+
+#### 17. D1 Migration (`migrations/0029_add_web_search_settings.sql`)
+- Adds `web_search_enabled INTEGER DEFAULT 0` and `web_search_context_size TEXT DEFAULT 'low'` to `project_settings`.
+- Adds `web_search_used INTEGER DEFAULT 0` and `web_search_source_count INTEGER` to `messages` for observability.
+
+### Files Modified (Phase 4)
+
+| File | Change Summary |
+|------|---------------|
+| `services/ai/src/index.ts` | `callOpenAI()` helper, conditional web_search tool injection, fallback retry, source counting |
+| `shared/types/api.ts` | Added `webSearchEnabled`, `webSearchContextSize` to `AiRequest`; `webSearchUsed`, `webSearchSourceCount` to `AiResponse` |
+| `services/ingest/src/utils/settingsMerge.ts` | `ProjectSettings`/`MergedSettings` extended with web search fields, defaults, validation |
+| `services/ingest/src/handlers/inbound.ts` | SELECT includes web search columns, AI request includes settings, UPDATE persists usage metrics |
+| `services/ingest/src/dashboard/views/settings.ts` | Checkbox toggle + context size dropdown |
+| `services/ingest/src/index.ts` | POST /settings handler persists web_search_enabled and web_search_context_size |
+| `migrations/0029_add_web_search_settings.sql` | Schema additions for project_settings and messages |
+
+### Rollout / Testing Notes (Phase 4)
+
+- **Migration required:** Run `0029_add_web_search_settings.sql` before deploying code.
+  ```bash
+  cd services/ingest && npx wrangler d1 migrations apply rally-database --remote
+  ```
+- **Deploy order:** Migration first, then `rally-ai`, then `rally-ingest`.
+- **Feature is ON by default.** Disable via dashboard Settings page after deploy if needed.
+- **Smoke tests:**
+  1. With web search **disabled**: send a normal email and verify reply arrives with `web_search_used = 0`.
+  2. Enable web search in Settings, set context size to `low`.
+  3. Send an email asking a recency question (e.g., "What happened in the news today?") and verify AI reply includes cited sources.
+  4. Check `wrangler tail rally-ai` for `AI: Web search enabled` and `AI: Web search used, N source(s) retrieved` log lines.
+  5. Check D1 message record has `web_search_used = 1` and `web_search_source_count > 0`.
+  6. Simulate a web search failure (e.g., bad API key test) and verify fallback produces a reply without web search.
+
 ## Follow-up Risks
 
 - **GPT-5.1 shutdown (2026-07-23):** The base `gpt-5.1` slug may also stop working around this date. This migration removes all stored references, but monitor for any hardcoded usage that was missed.
@@ -124,3 +178,7 @@
 - **`user_data` purpose:** Monitor for any 400 errors after deploy in case OpenAI tightens validation.
 - **Refusal handling:** The refusal fallback returns a user-visible message. Consider whether this should be a softer error or an admin notification in production.
 - **Model list maintenance:** When OpenAI releases new models, update `ALLOWED_MODELS` in `services/ingest/src/index.ts` and the dashboard dropdowns.
+- **Web search latency:** `search_context_size: "low"` is the default for speed. Monitor p95 and bump to `medium` only if answer quality suffers.
+- **Web search cost:** Web search tokens are billed separately and don't count against the model context window, but they do add cost. Track via `web_search_source_count` and token usage.
+- **Per-persona web search overrides:** Currently global-only. Future work could add per-email-settings or per-persona toggles.
+- **Domain filtering:** The `web_search` tool supports `filters.allowed_domains` / `filters.blocked_domains` (up to 100 each). Not yet exposed in the dashboard; planned for Phase 5.

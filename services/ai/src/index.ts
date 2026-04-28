@@ -38,6 +38,31 @@ export default class AiService extends WorkerEntrypoint<Env> {
     }
 
     /**
+     * Fire a single request to OpenAI Responses API.
+     * Returns parsed JSON on success, or null on failure (caller decides retry strategy).
+     */
+    private async callOpenAI(payload: any): Promise<any | null> {
+        const resp = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+            const errorText = await resp.text();
+            console.error(`AI: OpenAI API Error: ${resp.status} - ${errorText}`);
+            return null;
+        }
+
+        const json = await resp.json() as any;
+        console.log("AI: OpenAI Response received");
+        return json;
+    }
+
+    /**
      * Process email with OpenAI
      */
     async generateReply(request: AiRequest): Promise<AiResponse> {
@@ -145,40 +170,60 @@ export default class AiService extends WorkerEntrypoint<Env> {
             if (request.reasoningEffort) payload.reasoning = { effort: request.reasoningEffort };
             if (request.textVerbosity) payload.text = { verbosity: request.textVerbosity };
 
-            const aiStartTime = Date.now();
-
-            // 4. Call OpenAI Responses API
-            const resp = await fetch("https://api.openai.com/v1/responses", {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${this.env.OPENAI_API_KEY}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify(payload)
-            });
-
-            if (!resp.ok) {
-                const errorText = await resp.text();
-                throw new Error(`OpenAI API Error: ${resp.status} - ${errorText}`);
+            // Conditionally enable web search tool (GA version)
+            const webSearchRequested = !!request.webSearchEnabled;
+            if (webSearchRequested) {
+                const webSearchTool: any = { type: "web_search" };
+                if (request.webSearchContextSize) {
+                    webSearchTool.search_context_size = request.webSearchContextSize;
+                }
+                payload.tools = [webSearchTool];
+                // Request source URLs so we can count them for observability
+                payload.include = ["web_search_call.action.sources"];
+                console.log(`AI: Web search enabled (context_size: ${request.webSearchContextSize || 'medium'})`);
             }
 
-            const json = await resp.json() as any;
-            console.log("AI: OpenAI Response received");
+            const aiStartTime = Date.now();
+            let json = await this.callOpenAI(payload);
+
+            // Fallback: if the request with web search failed, retry without it
+            if (!json && webSearchRequested) {
+                console.warn("AI: Web search request failed, retrying without web search tool");
+                delete payload.tools;
+                delete payload.include;
+                json = await this.callOpenAI(payload);
+            }
+
+            if (!json) {
+                throw new Error("OpenAI API returned no parseable response after all attempts");
+            }
 
             const aiEndTime = Date.now();
             const aiResponseTimeMs = aiEndTime - aiStartTime;
 
             // Extract text from all completed assistant message items in the output array.
-            // The output can contain reasoning items, tool calls, and multiple messages;
-            // we aggregate every output_text part and detect refusals.
+            // The output can contain reasoning items, web_search_call items, tool calls, and
+            // multiple messages; we aggregate every output_text part and detect refusals.
             let assistantMessage = "";
             let refusalMessage = "";
+            let webSearchUsed = false;
+            let webSearchSourceCount = 0;
 
             if (json.output && Array.isArray(json.output)) {
                 const outputTypes = json.output.map((item: any) => item.type);
                 console.log("AI: Output item types:", outputTypes.join(", "));
 
                 for (const item of json.output) {
+                    // Track web search tool usage
+                    if (item.type === "web_search_call") {
+                        webSearchUsed = true;
+                        // Sources are attached to the action when include param is set
+                        const sources = item.action?.sources;
+                        if (Array.isArray(sources)) {
+                            webSearchSourceCount += sources.length;
+                        }
+                    }
+
                     if (item.type !== "message" || !Array.isArray(item.content)) continue;
                     for (const part of item.content) {
                         if (part.type === "output_text" && part.text) {
@@ -205,6 +250,10 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 }
             }
 
+            if (webSearchUsed) {
+                console.log(`AI: Web search used, ${webSearchSourceCount} source(s) retrieved`);
+            }
+
             const reasoningTokens = json.usage?.output_tokens_details?.reasoning_tokens;
             const cachedTokens = json.usage?.input_tokens_details?.cached_tokens;
 
@@ -221,6 +270,8 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 serviceTier: json.service_tier,
                 reasoningEffort: json.reasoning?.effort,
                 textVerbosity: json.text?.verbosity,
+                webSearchUsed,
+                webSearchSourceCount: webSearchUsed ? webSearchSourceCount : undefined,
             };
 
         } catch (error) {
