@@ -1,6 +1,11 @@
 /**
  * Email Formatting Utilities
- * Handles content transformation and footer generation for outbound emails
+ * Handles content transformation and footer generation for outbound emails.
+ *
+ * Design intent: keep emails as plain as possible. We still convert markdown
+ * to HTML so clients render headings/lists/tables/code readably, but we emit
+ * bare semantic tags with NO inline CSS. The recipient's mail client decides
+ * how things look. The footer carries stats only — no branding.
  */
 
 import type { PostmarkInboundMessage } from "shared/types";
@@ -62,7 +67,7 @@ export function calculateReplyRecipients(
   for (const t of toList) addContact(t);
   for (const c of ccList) addContact(c);
 
-  // Remove Rally’s own sending address
+  // Remove Rally's own sending address
   const rallyKey = normalizeEmail(rallyEmailAddress);
   if (rallyKey) allParticipantsMap.delete(rallyKey);
 
@@ -124,117 +129,167 @@ function isHtml(text: string): boolean {
 }
 
 /**
- * Convert markdown table to HTML table
+ * Escape HTML so plain text doesn't accidentally render as markup.
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * Convert a markdown table block to a bare semantic HTML <table>.
  */
 function convertMarkdownTable(tableText: string): string {
   const lines = tableText.trim().split('\n');
   if (lines.length < 3) return tableText;
-  
+
   const headerLine = lines[0];
   const dataLines = lines.slice(2); // Skip separator line
   const headers = headerLine.split('|').map(h => h.trim()).filter(h => h);
-  
-  let html = '<table style="border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13px;">';
-  
-  // Header row
+
+  let html = '<table border="1" cellpadding="6" cellspacing="0">';
+
   html += '<thead><tr>';
-  headers.forEach(header => {
-    html += `<th style="border: 1px solid #ddd; padding: 8px; background: #f8f9fa; text-align: left; font-weight: 600;">${header}</th>`;
-  });
-  html += '</tr></thead>';
-  
-  // Data rows
-  html += '<tbody>';
-  dataLines.forEach(line => {
+  for (const header of headers) {
+    html += `<th>${header}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const line of dataLines) {
     const cells = line.split('|').map(c => c.trim()).filter(c => c);
-    if (cells.length === 0) return;
-    
+    if (cells.length === 0) continue;
     html += '<tr>';
-    cells.forEach(cell => {
-      html += `<td style="border: 1px solid #ddd; padding: 8px;">${cell}</td>`;
-    });
+    for (const cell of cells) html += `<td>${cell}</td>`;
     html += '</tr>';
-  });
+  }
   html += '</tbody></table>';
-  
+
   return html;
 }
 
 /**
- * Convert markdown to email-safe HTML
+ * Convert markdown to bare semantic HTML (no inline CSS).
+ * Email clients have sensible defaults for these tags.
  */
 function markdownToHtml(text: string): string {
   let html = text;
-  
+
   // Tables first (before other processing)
   html = html.replace(/^(\|.+\|)\n(\|[\s:-]+\|)\n((?:\|.+\|\n?)+)/gm, (match) => {
     return convertMarkdownTable(match);
   });
-  
+
   // Code blocks before inline code
   html = html.replace(/```[\s\S]*?```/g, (match) => {
     const code = match.replace(/```/g, '').trim();
-    return `<pre style="background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; font-family: monospace; font-size: 12px; margin: 12px 0; line-height: 1.4;">${code}</pre>`;
+    return `<pre><code>${escapeHtml(code)}</code></pre>`;
   });
-  
+
   // Headers
-  html = html.replace(/^### (.+)$/gm, '<h3 style="font-size: 16px; font-weight: 600; color: #333; margin: 16px 0 8px;">$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2 style="font-size: 18px; font-weight: 600; color: #333; margin: 18px 0 10px;">$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1 style="font-size: 20px; font-weight: 600; color: #333; margin: 20px 0 12px;">$1</h1>');
-  
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
   // Bold and italic
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="font-weight: 600;">$1</strong>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  
+
   // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code style="background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px;">$1</code>');
-  
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
   // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #007bff; text-decoration: none;">$1</a>');
-  
-  // Lists
-  html = html.replace(/^(\s*)[-*+]\s+(.+)$/gm, '$1• $2');
-  html = html.replace(/^(\s*)(\d+)\.\s+(.+)$/gm, '$1$2. $3');
-  
-  // Paragraphs
-  const paragraphs = html.split('\n\n');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+  // Lists: convert consecutive bullet/numbered lines to <ul>/<ol>
+  html = convertLists(html);
+
+  // Paragraphs: split on blank lines, wrap non-block segments in <p>
+  const paragraphs = html.split(/\n{2,}/);
   html = paragraphs.map(para => {
     para = para.trim();
     if (!para) return '';
-    if (para.startsWith('<table') || para.startsWith('<h') || para.startsWith('<pre')) {
+    // If it already starts with a block-level tag, leave as-is
+    if (/^<(table|h[1-6]|pre|ul|ol|blockquote|hr|div)/i.test(para)) {
       return para;
     }
-    return `<p style="margin: 0 0 12px; line-height: 1.6; color: #333;">${para.replace(/\n/g, '<br>')}</p>`;
-  }).join('');
-  
+    return `<p>${para.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+
   return html;
 }
 
 /**
- * Main formatter: Converts AI response to email-compatible HTML
+ * Group consecutive list-marker lines into proper <ul>/<ol> blocks.
+ * Runs after inline markdown so nested formatting is preserved.
+ */
+function convertLists(text: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let buffer: string[] = [];
+  let listType: 'ul' | 'ol' | null = null;
+
+  const flush = () => {
+    if (listType && buffer.length > 0) {
+      out.push(`<${listType}>` + buffer.map(b => `<li>${b}</li>`).join('') + `</${listType}>`);
+    }
+    buffer = [];
+    listType = null;
+  };
+
+  for (const line of lines) {
+    const ul = line.match(/^\s*[-*+]\s+(.+)$/);
+    const ol = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (ul) {
+      if (listType && listType !== 'ul') flush();
+      listType = 'ul';
+      buffer.push(ul[1]);
+    } else if (ol) {
+      if (listType && listType !== 'ol') flush();
+      listType = 'ol';
+      buffer.push(ol[1]);
+    } else {
+      flush();
+      out.push(line);
+    }
+  }
+  flush();
+  return out.join('\n');
+}
+
+/**
+ * Main formatter: converts AI response to email-compatible HTML.
+ * - HTML in → passed through.
+ * - Markdown in → converted to bare semantic HTML.
+ * - Plain text in → escaped and wrapped in <pre> to preserve line breaks
+ *   without imposing any styling.
  */
 export function formatForEmail(aiResponse: string): string {
   if (!aiResponse) return '';
-  
+
   if (isHtml(aiResponse)) {
     return aiResponse;
   }
-  
+
   if (isMarkdown(aiResponse)) {
     return markdownToHtml(aiResponse);
   }
-  
-  // Plain text fallback
-  return '<div style="font-family: Arial, sans-serif; color: #333; line-height: 1.6; white-space: pre-wrap;">' + 
-    aiResponse.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + 
-    '</div>';
+
+  return `<pre>${escapeHtml(aiResponse)}</pre>`;
 }
 
 // ============ Email Footer (Processing Metrics) ============
 
 /**
- * Generate email footer with processing metrics
- * Returns both text and HTML versions for email client compatibility
+ * Generate email footer with processing metrics.
+ *
+ * Footer is intentionally minimal and unbranded:
+ *   - "---" separator
+ *   - timing bullets
+ *   - cost / token / model summary
+ *
+ * Returns both text and HTML versions for email-client compatibility.
  */
 export function generateEmailFooter(
   totalTimeMs: number,
@@ -251,60 +306,42 @@ export function generateEmailFooter(
   serviceTier?: string,
   reasoningEffort?: string
 ): { text: string; html: string } {
-  
-  const totalTimeDisplay = totalTimeMs >= 1000 
-    ? `${(totalTimeMs / 1000).toFixed(2)} seconds`
+
+  const totalTimeDisplay = totalTimeMs >= 1000
+    ? `${(totalTimeMs / 1000).toFixed(2)}s`
     : `${totalTimeMs}ms`;
 
-  // Build bullet list of processing steps
-  const bullets: string[] = [`Received and parsed your email: ${ingestTimeMs}ms`];
-  
-  if (attachmentTimeMs > 0) {
-    bullets.push(`Saved attachments to storage: ${attachmentTimeMs}ms`);
-  }
-  
-  if (openaiUploadTimeMs > 0) {
-    bullets.push(`Uploaded files for AI analysis: ${openaiUploadTimeMs}ms`);
-  }
-  
-  bullets.push(`AI generated response: ${aiTimeMs}ms`);
+  // Timing bullets — only include steps that actually happened.
+  const bullets: string[] = [`Parsed email: ${ingestTimeMs}ms`];
+  if (attachmentTimeMs > 0) bullets.push(`Saved attachments: ${attachmentTimeMs}ms`);
+  if (openaiUploadTimeMs > 0) bullets.push(`Uploaded files to AI: ${openaiUploadTimeMs}ms`);
+  bullets.push(`AI response: ${aiTimeMs}ms`);
 
-  // Token usage breakdown
-  let tokenUsage = `read ${inputTokens.toLocaleString()} tokens`;
-  if (cachedTokens && cachedTokens > 0) {
-    tokenUsage += ` (${cachedTokens.toLocaleString()} cached)`;
-  }
-  tokenUsage += `, generated ${outputTokens.toLocaleString()} tokens`;
-  if (reasoningTokens && reasoningTokens > 0) {
-    tokenUsage += ` (${reasoningTokens.toLocaleString()} reasoning)`;
-  }
+  // Token usage line
+  let tokenUsage = `${inputTokens.toLocaleString()} in`;
+  if (cachedTokens && cachedTokens > 0) tokenUsage += ` (${cachedTokens.toLocaleString()} cached)`;
+  tokenUsage += `, ${outputTokens.toLocaleString()} out`;
+  if (reasoningTokens && reasoningTokens > 0) tokenUsage += ` (${reasoningTokens.toLocaleString()} reasoning)`;
 
-  // AI configuration
+  // Optional model/effort/tier suffix
   const aiConfig: string[] = [];
   if (model) aiConfig.push(model);
   if (reasoningEffort) aiConfig.push(`${reasoningEffort} effort`);
   if (serviceTier) aiConfig.push(serviceTier);
-  const aiConfigStr = aiConfig.length > 0 ? ` • ${aiConfig.join(', ')}` : '';
 
-  // Plain text version
-  const text = `\n\n---\nRally processed this email in ${totalTimeDisplay}:\n` +
-    bullets.map(b => `• ${b}`).join('\n') +
-    `\n\nAI Usage: $${costInDollars.toFixed(4)} (${tokenUsage})${aiConfigStr}`;
+  // Build line-oriented body shared between text and HTML versions
+  const lines: string[] = [
+    `Total: ${totalTimeDisplay}`,
+    ...bullets.map(b => `• ${b}`),
+    `Cost: $${costInDollars.toFixed(4)} (${tokenUsage})`,
+  ];
+  if (aiConfig.length > 0) lines.push(aiConfig.join(' • '));
 
-  // HTML version
-  const html = `
-<div style="margin-top: 16px;">
-<table style="padding-top: 8px; border-top: 1px solid #e0e0e0; font-family: Arial, sans-serif; font-size: 11px; color: #888888; width: 100%; line-height: 1.3;">
-  <tr>
-    <td colspan="2" style="padding-bottom: 4px; font-weight: 600; color: #666666;">Rally processed this email in ${totalTimeDisplay}:</td>
-  </tr>
-  ${bullets.map(b => `<tr><td style="padding: 1px 0; padding-left: 8px; vertical-align: top;">&bull;</td><td style="padding: 1px 0;">${b}</td></tr>`).join('')}
-  <tr>
-    <td colspan="2" style="padding-top: 4px; font-weight: 600; color: #666666;">AI Usage: <span style="font-weight: 400; color: #888888;">$${costInDollars.toFixed(4)} (${tokenUsage})${aiConfigStr}</span></td>
-  </tr>
-</table>
-</div>
-`;
+  const text = `\n\n---\n${lines.join('\n')}`;
+
+  // HTML mirrors the text version: <hr> separator + escaped lines with <br>.
+  // No inline CSS — the recipient's client styles it.
+  const html = `\n<hr>\n${lines.map(escapeHtml).join('<br>\n')}\n`;
 
   return { text, html };
 }

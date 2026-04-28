@@ -79,6 +79,44 @@
   4. Verify dashboard dropdowns show the four new model options.
   5. Check `wrangler tail rally-ai` for the new "Output item types:" log line.
 
+## Phase 3: Outbound Email — Plain Formatting (April 2026)
+
+#### 11. Stripped All Inline CSS from Outbound Emails (`services/ingest/src/utils/emailFormatting.ts`, `emailTemplate.ts`)
+- Removed every inline `style="..."` attribute and the outer 600px Arial container wrapper.
+- `formatForEmail()` now emits **bare semantic HTML** (`<h1>`-`<h3>`, `<p>`, `<ul>`/`<ol>`/`<li>`, `<table>`/`<th>`/`<td>`, `<pre><code>`, `<a>`, `<strong>`, `<em>`, `<code>`) so recipients' mail clients render with their own defaults.
+- Plain-text AI output is now wrapped in `<pre>` (escaped) instead of a styled `<div>`, preserving line breaks without imposing fonts/colors.
+- Added a `convertLists()` helper so consecutive `-`/`*`/`1.` lines become real `<ul>`/`<ol>` blocks (previously rendered as literal bullet glyphs).
+- **Why:** User wants the simplest possible outbound format. We still convert markdown so lists/tables/code render readably — going pure plain text would leave raw `**`, `|`, and backticks visible.
+
+#### 12. Footer: Stats Only, No Branding (`generateEmailFooter()`)
+- Removed the "Rally processed this email in X" branding line.
+- New footer = `---` separator + compact stats:
+  - `Total: 1.23s`
+  - `• Parsed email: 50ms`
+  - `• AI response: 1180ms`
+  - `Cost: $0.0042 (1,234 in, 456 out (123 reasoning))`
+  - `gpt-5.4 • medium effort`
+- HTML footer mirrors the text version: `<hr>` + lines joined with `<br>`, no inline CSS.
+
+#### 13. Error / Simple Emails De-styled (`buildErrorEmail()`, `buildSimpleEmail()`)
+- Dropped 600px Arial wrapper and the "The Rally Team" sign-off.
+- Error email is now plain `<p>` tags with an optional `<pre>` for technical details.
+- `buildSimpleEmail()` HTML is now just `<p>{escaped message}</p>`.
+
+### Files Modified (Phase 3)
+
+| File | Change Summary |
+|------|---------------|
+| `services/ingest/src/utils/emailFormatting.ts` | Removed all inline CSS, added list grouping, footer rewritten without branding |
+| `services/ingest/src/utils/emailTemplate.ts` | Removed styled wrapper from `buildEmailWithFooter`; simplified error/simple builders |
+
+### Smoke Tests (Phase 3)
+
+1. Send an email that triggers a markdown reply with headings, a bulleted list, a table, and a fenced code block — verify each renders with the client's native styling (no Arial/600px frame).
+2. Send an email that triggers a plain-text reply — verify it appears in a `<pre>` block with line breaks intact.
+3. Confirm footer reads `---` then stats only, no "Rally" mentions.
+4. Trigger a failure path (missing system prompt) — verify the simple email body has no styled wrapper.
+
 ## Follow-up Risks
 
 - **GPT-5.1 shutdown (2026-07-23):** The base `gpt-5.1` slug may also stop working around this date. This migration removes all stored references, but monitor for any hardcoded usage that was missed.

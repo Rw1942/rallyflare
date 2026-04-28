@@ -58,22 +58,10 @@ export function buildEmailWithFooter(
   // 2. Text version: simple concatenation
   const textBody = aiResponseContent + footer.text;
 
-  // 3. HTML version: format content, then wrap in proper email container
+  // 3. HTML version: bare semantic content + footer, no styling wrapper.
+  //    We rely on the recipient's mail client for default rendering.
   const formattedContent = formatForEmail(aiResponseContent);
-  
-  // Email-safe HTML structure:
-  // - Outer container with max-width for readability
-  // - Content section
-  // - Footer section (already wrapped in its own div)
-  // - All styles inline for email client compatibility
-  const htmlBody = `
-<div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0; padding: 0; color: #333333;">
-  <div style="padding: 20px;">
-    ${formattedContent}
-  </div>
-  ${footer.html}
-</div>
-`.trim();
+  const htmlBody = `${formattedContent}${footer.html}`.trim();
 
   return { textBody, htmlBody };
 }
@@ -88,27 +76,13 @@ export function buildErrorEmail(
   
   const textBody = `Hi there,
 
-We ran into a little hiccup while processing your email. We're sorry about that!
+We ran into a problem processing your email.
 
-${technicalDetails ? `Error details: ${technicalDetails}\n\n` : ''}Please try again later.
+${technicalDetails ? `Error details: ${technicalDetails}\n\n` : ''}Please try again later.`;
 
-Best,
-The Rally Team`;
-
-  const htmlBody = `
-<div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0; padding: 20px; color: #333333;">
-  <p>Hi there,</p>
-  <p>We ran into a little hiccup while processing your email. We're sorry about that!</p>
-  ${technicalDetails ? `
-  <p>Here are the technical details of what happened:</p>
-  <pre style="background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 12px; color: #666666;">
-${technicalDetails}
-  </pre>
-  ` : ''}
-  <p>Please try again later.</p>
-  <p>Best,<br>The Rally Team</p>
-</div>
-`.trim();
+  const htmlBody = `<p>Hi there,</p>
+<p>We ran into a problem processing your email.</p>
+${technicalDetails ? `<p>Error details:</p>\n<pre>${technicalDetails.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>\n` : ''}<p>Please try again later.</p>`;
 
   return { textBody, htmlBody };
 }
@@ -117,13 +91,14 @@ ${technicalDetails}
  * Build simple text email (like "missing system prompt" error)
  */
 export function buildSimpleEmail(message: string): { textBody: string; htmlBody: string } {
+  // Escape so a stray '<' in the message doesn't get parsed as markup.
+  const escaped = message
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
   return {
     textBody: message,
-    htmlBody: `
-<div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 0; padding: 20px; color: #333333;">
-  <p>${message}</p>
-</div>
-`.trim()
+    htmlBody: `<p>${escaped}</p>`,
   };
 }
 
