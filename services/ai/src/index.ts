@@ -267,6 +267,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 aiResponseTimeMs,
                 openaiUploadTimeMs,
                 openaiResponseId: json.id,
+                model: json.model || request.model,
                 serviceTier: json.service_tier,
                 reasoningEffort: json.reasoning?.effort,
                 textVerbosity: json.text?.verbosity,

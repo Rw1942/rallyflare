@@ -164,7 +164,7 @@ npx wrangler tail rallyflare
 
 **AI Not Replying:**
 *   Check `rally-ai` logs: `npx wrangler tail rally-ai`
-*   Ensure your OpenAI API key is valid and has access to `gpt-5.4`.
+*   Ensure your OpenAI API key is valid and has access to `gpt-5.5`.
 *   Verify `rally-ingest` logs to see if it successfully handed off the request.
 
 **Migrations Not Working:**

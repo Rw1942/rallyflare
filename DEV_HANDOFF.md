@@ -56,8 +56,8 @@
 |------|---------------|
 | `services/ai/src/index.ts` | File purpose, instructions field, store:false, robust parser |
 | `shared/types/api.ts` | Removed `temperature` from `AiResponse` |
-| `services/ingest/src/index.ts` | Model allowlist updated to gpt-5.5/5.4/5.4-mini/5-mini, default=gpt-5.4 |
-| `services/ingest/src/utils/settingsMerge.ts` | Default model=gpt-5.4, pricing=$2.50/$15.00 |
+| `services/ingest/src/index.ts` | Model allowlist updated to gpt-5.5/5.4/5.4-mini/5-mini, default=gpt-5.5 |
+| `services/ingest/src/utils/settingsMerge.ts` | Default model=gpt-5.5, pricing=$5.00/$30.00 |
 | `services/ingest/src/dashboard/views/settings.ts` | Model dropdown: 4 options |
 | `services/ingest/src/dashboard/views/personas.ts` | Model dropdown: 4 options |
 | `services/ingest/src/dashboard/views/userDetail.ts` | Model dropdown: 4 options |
@@ -73,9 +73,9 @@
   ```
 - **Deploy order:** Migration first, then `rally-ai`, then `rally-ingest`.
 - **Smoke tests:**
-  1. Send a plain-text email and verify AI reply arrives with `model = gpt-5.4` in D1.
+  1. Send a plain-text email and verify AI reply arrives with `model = gpt-5.5` in D1.
   2. Send an email with a PDF attachment and verify file upload succeeds (check logs for `purpose: user_data`).
-  3. Attempt to POST an invalid model value via curl to `/settings`; confirm it falls back to `gpt-5.4`.
+  3. Attempt to POST an invalid model value via curl to `/settings`; confirm it falls back to `gpt-5.5`.
   4. Verify dashboard dropdowns show the four new model options.
   5. Check `wrangler tail rally-ai` for the new "Output item types:" log line.
 
@@ -95,7 +95,7 @@
   - `• Parsed email: 50ms`
   - `• AI response: 1180ms`
   - `Cost: $0.0042 (1,234 in, 456 out (123 reasoning))`
-  - `gpt-5.4 • medium effort`
+  - `Model: gpt-5.5 • Reasoning: medium`
 - HTML footer mirrors the text version: `<hr>` + lines joined with `<br>`, no inline CSS.
 
 #### 13. Error / Simple Emails De-styled (`buildErrorEmail()`, `buildSimpleEmail()`)
@@ -171,10 +171,37 @@
   5. Check D1 message record has `web_search_used = 1` and `web_search_source_count > 0`.
   6. Simulate a web search failure (e.g., bad API key test) and verify fallback produces a reply without web search.
 
+## Phase 5: GPT-5.5 Default + Footer Model Status (April 2026)
+
+#### 18. Default Model Updated to `gpt-5.5`
+- **`services/ingest/src/index.ts`**: invalid model values now fall back to `gpt-5.5`.
+- Persona model overrides now preserve blank values as `NULL`, so "Use default" continues to inherit the global model.
+- **`services/ingest/src/utils/settingsMerge.ts`**: hardcoded fallback model changed to `gpt-5.5`, with pricing updated to $5.00 input / $30.00 output per 1M tokens.
+- **`migrations/0030_default_model_to_gpt5_5.sql`**: updates the default `project_settings` row to `gpt-5.5` and matching cost rates.
+- **Why:** The app should now use the frontier GPT-5.5 model unless admins or personas explicitly select a cheaper supported model.
+
+#### 19. Footer Shows Actual Model Used
+- **`services/ai/src/index.ts`**: `AiResponse` now includes the model returned by OpenAI (`json.model`) with a fallback to the requested model.
+- **`services/ingest/src/handlers/inbound.ts`**: footer generation and message persistence now use `aiResponse.model || aiRequest.model`.
+- **`services/ingest/src/utils/emailFormatting.ts`**: footer status line now reads `Model: gpt-5.5 • Reasoning: medium • Tier: ...` instead of an unlabeled model string.
+- **Why:** The footer should report the actual model used for the response, including any provider-side model alias resolution.
+
+### Rollout / Testing Notes (Phase 5)
+
+- **Migration required:** Run `0030_default_model_to_gpt5_5.sql` before deploying code.
+  ```bash
+  cd services/ingest && npx wrangler d1 migrations apply rally-database --remote
+  ```
+- **Smoke tests:**
+  1. Send a plain-text email and verify AI reply arrives with `model = gpt-5.5` in D1.
+  2. Confirm the email footer includes `Model: gpt-5.5`.
+  3. Attempt to POST an invalid model value via curl to `/settings`; confirm it falls back to `gpt-5.5`.
+  4. Override a persona to `gpt-5.4-mini`; verify the footer shows `Model: gpt-5.4-mini`.
+
 ## Follow-up Risks
 
 - **GPT-5.1 shutdown (2026-07-23):** The base `gpt-5.1` slug may also stop working around this date. This migration removes all stored references, but monitor for any hardcoded usage that was missed.
-- **Cost increase:** GPT-5.4 output tokens cost $15/1M vs GPT-5.1's $10/1M (50% increase). Monitor spend and consider defaulting to `gpt-5.4-mini` ($4.50/1M output) for cost-sensitive deployments.
+- **Cost increase:** GPT-5.5 output tokens cost $30/1M vs GPT-5.4's $15/1M. Monitor spend and consider `gpt-5.4-mini` ($4.50/1M output) for cost-sensitive deployments.
 - **`user_data` purpose:** Monitor for any 400 errors after deploy in case OpenAI tightens validation.
 - **Refusal handling:** The refusal fallback returns a user-visible message. Consider whether this should be a softer error or an admin notification in production.
 - **Model list maintenance:** When OpenAI releases new models, update `ALLOWED_MODELS` in `services/ingest/src/index.ts` and the dashboard dropdowns.

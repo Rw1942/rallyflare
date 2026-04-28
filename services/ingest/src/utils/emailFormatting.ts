@@ -323,11 +323,11 @@ export function generateEmailFooter(
   tokenUsage += `, ${outputTokens.toLocaleString()} out`;
   if (reasoningTokens && reasoningTokens > 0) tokenUsage += ` (${reasoningTokens.toLocaleString()} reasoning)`;
 
-  // Optional model/effort/tier suffix
+  // Status line: report the actual model OpenAI used, plus runtime config.
   const aiConfig: string[] = [];
-  if (model) aiConfig.push(model);
-  if (reasoningEffort) aiConfig.push(`${reasoningEffort} effort`);
-  if (serviceTier) aiConfig.push(serviceTier);
+  if (model) aiConfig.push(`Model: ${model}`);
+  if (reasoningEffort) aiConfig.push(`Reasoning: ${reasoningEffort}`);
+  if (serviceTier) aiConfig.push(`Tier: ${serviceTier}`);
 
   // Build line-oriented body shared between text and HTML versions
   const lines: string[] = [

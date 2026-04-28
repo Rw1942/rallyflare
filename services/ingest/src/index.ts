@@ -14,7 +14,7 @@ const html = (content: string) => new Response(content, { headers: { "content-ty
 const safeResults = (results: any) => Array.isArray(results) ? results : [];
 
 const ALLOWED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5-mini"] as const;
-const DEFAULT_MODEL = "gpt-5.4";
+const DEFAULT_MODEL = "gpt-5.5";
 
 /** Reject unknown model strings at the settings boundary */
 function sanitizeModel(raw: string | File | null): string {
@@ -22,6 +22,13 @@ function sanitizeModel(raw: string | File | null): string {
   if ((ALLOWED_MODELS as readonly string[]).includes(value)) return value;
   if (value) console.warn(`Rejected invalid model "${value}", falling back to ${DEFAULT_MODEL}`);
   return DEFAULT_MODEL;
+}
+
+/** Persona model overrides are optional; blank means inherit the global default. */
+function sanitizeOptionalModel(raw: string | File | null): string | null {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) return null;
+  return sanitizeModel(value);
 }
 
 export default {
@@ -201,7 +208,7 @@ export default {
         `).bind(
           emailAddress,
           formData.get('system_prompt') || null,
-          sanitizeModel(formData.get('model')),
+          sanitizeOptionalModel(formData.get('model')),
           formData.get('reasoning_effort') || null,
           formData.get('text_verbosity') || null,
           formData.get('max_output_tokens') || null
@@ -218,7 +225,7 @@ export default {
           WHERE email_address = ?
         `).bind(
           formData.get('system_prompt') || null,
-          sanitizeModel(formData.get('model')),
+          sanitizeOptionalModel(formData.get('model')),
           formData.get('reasoning_effort') || null,
           formData.get('text_verbosity') || null,
           formData.get('max_output_tokens') || null,

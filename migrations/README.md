@@ -53,8 +53,10 @@ npx wrangler d1 migrations apply rally-database --local
 - **0026**: **Cleanup** - Dropped unused `comments` table (Wrangler scaffolding artifact)
 - **0027**: Normalize persona email addresses
 - **0028**: **GPT-5.4 upgrade** - Migrated default model from deprecated `gpt-5.1` to `gpt-5.4`, updated pricing
+- **0029**: Web search settings and message observability columns
+- **0030**: **GPT-5.5 default** - Updated the default project model and pricing to `gpt-5.5`
 
-### Current Schema (as of migration 0028)
+### Current Schema (as of migration 0030)
 
 **Core Tables:**
 - `messages` - Email messages (inbound/outbound) with AI responses
@@ -103,7 +105,7 @@ D1 doesn't support automatic rollback. To revert:
 
 ## Future Considerations
 
-As migrations grow (currently 28), consider:
+As migrations grow (currently 30), consider:
 - Archiving pre-launch migrations into `archive/` after consolidation
 - Creating a "fresh start" migration for new deployments
 - Documenting breaking changes clearly in this README

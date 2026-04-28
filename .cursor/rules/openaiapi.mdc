@@ -1,11 +1,11 @@
-# GPT-5.4 Developer Guide (REST Only)
+# GPT-5.5 Developer Guide (REST Only)
 
 Cloudflare Workers • TypeScript • D1 • R2
 
 **IMPORTANT: Model Names**
 - **Available Models (April 2026):**
-  - `gpt-5.5` - Frontier model for complex professional work ($5.00 input / $30.00 output per 1M tokens, 1.1M context)
-  - `gpt-5.4` - **Recommended default** — flagship reasoning model ($2.50 input / $15.00 output per 1M tokens, 1.05M context)
+  - `gpt-5.5` - **Recommended default** frontier model for complex professional work ($5.00 input / $30.00 output per 1M tokens, 1.1M context)
+  - `gpt-5.4` - Flagship reasoning model ($2.50 input / $15.00 output per 1M tokens, 1.05M context)
   - `gpt-5.4-mini` - Strong mini for production workloads ($0.75 input / $4.50 output per 1M tokens, 400K context)
   - `gpt-5-mini` - Budget option ($0.25 input / $2.00 output per 1M tokens, 500K context)
 - **Deprecated / Do NOT use:** `gpt-5.1` (legacy, API shutdown 2026-07-23), `gpt-5`, `gpt-4o`, `gpt-4`, `gpt-3.5-turbo`
@@ -35,7 +35,7 @@ const headers = (env: Env) => ({
 ```ts
 export async function chat(env: Env, prompt: string) {
   const body = {
-    model: "gpt-5.4",  // or "gpt-5.4-mini" / "gpt-5-mini" for cheaper responses
+    model: "gpt-5.5",  // or "gpt-5.4-mini" / "gpt-5-mini" for cheaper responses
     input: [{ role: "user", content: prompt }],
     // Supported configuration parameters
     reasoning: { effort: "medium" }, // minimal, low, medium, high
@@ -79,7 +79,7 @@ export async function streamChat(env: Env, prompt: string) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "gpt-5.4",
+      model: "gpt-5.5",
       input: [{ role: "user", content: prompt }],
       stream: true,
       reasoning: { effort: "medium" },
@@ -192,7 +192,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "gpt-5.4",
+    model: "gpt-5.5",
     input: [
       {
         role: "user",
@@ -228,7 +228,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "gpt-5.4",
+    model: "gpt-5.5",
     input: [
       {
         role: "user",
@@ -274,7 +274,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "gpt-5.4",
+    model: "gpt-5.5",
     input: rows.map(m => ({
       role: m.role,
       content: m.content
@@ -340,7 +340,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "gpt-5.4",
+      model: "gpt-5.5",
       input: [{ role: "user", content: userContent }],
       reasoning: { effort: "medium" },
       text: { verbosity: "low" }

@@ -8,13 +8,13 @@ alwaysApply: true
 
 ## OpenAI Model Requirements
 
-**This project uses GPT-5.4 as its default model (updated April 2026).**
+**This project uses GPT-5.5 as its default model (updated April 2026).**
 
 Note for AI assistants: GPT-5 was released in August 2025 and uses the OpenAI Responses API (not the Chat Completions API). GPT-5.1 was deprecated from ChatGPT in March 2026 and has an API shutdown date of July 23, 2026. Use GPT-5.4 or newer.
 
 **Supported models:**
-- `gpt-5.5` (frontier - complex professional work, $5/$30 per 1M tokens)
-- `gpt-5.4` (recommended default - flagship reasoning, $2.50/$15 per 1M tokens)
+- `gpt-5.5` (recommended default/frontier - complex professional work, $5/$30 per 1M tokens)
+- `gpt-5.4` (flagship reasoning, $2.50/$15 per 1M tokens)
 - `gpt-5.4-mini` (strong mini for production, $0.75/$4.50 per 1M tokens)
 - `gpt-5-mini` (budget option, $0.25/$2 per 1M tokens)
 
@@ -35,8 +35,8 @@ GPT-5.4 is OpenAI's recommended successor to GPT-5.1, with the same Responses AP
 **API Endpoint:** `https://api.openai.com/v1/responses` (NOT `/v1/chat/completions`)
 
 **Valid Models:**
-- ✅ `gpt-5.5` (frontier, highest quality)
-- ✅ `gpt-5.4` (recommended default)
+- ✅ `gpt-5.5` (recommended default/frontier, highest quality)
+- ✅ `gpt-5.4` (flagship)
 - ✅ `gpt-5.4-mini` (strong mini)
 - ✅ `gpt-5-mini` (budget)
 - ❌ `gpt-5.1` (deprecated, shutting down July 2026)
@@ -156,7 +156,7 @@ Think of Email2ChatGPT as “reply-all automation with brains.” Users never lo
 * User Management: Searchable users, conversation history, per-user settings override.
 * Global Settings: Default AI behavior (model, system prompt, reasoning_effort, text_verbosity).
 * GDPR Tools: Export or delete user data.
-* **Model dropdown must ONLY show: `gpt-5.5` (Frontier), `gpt-5.4` (Recommended), `gpt-5.4-mini`, and `gpt-5-mini` (Budget).**
+* **Model dropdown must ONLY show: `gpt-5.5` (Recommended), `gpt-5.4`, `gpt-5.4-mini`, and `gpt-5-mini` (Budget).**
 
 ---
 
@@ -203,7 +203,7 @@ CREATE TABLE users (
 CREATE TABLE email_settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT UNIQUE NOT NULL,
-  model TEXT DEFAULT 'gpt-5.4',  -- MUST be gpt-5.5, gpt-5.4, gpt-5.4-mini, or gpt-5-mini
+  model TEXT DEFAULT 'gpt-5.5',  -- MUST be gpt-5.5, gpt-5.4, gpt-5.4-mini, or gpt-5-mini
   system_prompt TEXT,
   reasoning_effort TEXT DEFAULT 'medium',  -- low/medium/high for GPT-5
   text_verbosity TEXT DEFAULT 'low',  -- low/medium/high for GPT-5
@@ -261,7 +261,7 @@ CREATE TABLE attachments (
 ```javascript
 // Correct GPT-5.1 Responses API call
 const payload = {
-  model: "gpt-5.4",  // MUST be gpt-5.5, gpt-5.4, gpt-5.4-mini, or gpt-5-mini
+  model: "gpt-5.5",  // MUST be gpt-5.5, gpt-5.4, gpt-5.4-mini, or gpt-5-mini
   input: [
     { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
     { role: "user", content: [{ type: "input_text", text: userMessage }] }
@@ -321,7 +321,7 @@ bucket_name = "rally-attachments"
 
 ## Notes for the Developer
 
-*   **CRITICAL: Use GPT-5.4 or newer ONLY. Default to `gpt-5.4`. Never use GPT-5.1, GPT-4, or older models.**
+*   **CRITICAL: Use GPT-5.4 or newer ONLY. Default to `gpt-5.5`. Never use GPT-5.1, GPT-4, or older models.**
 *   **OpenAI Responses API (NOT Chat Completions API) is required for GPT-5 models.**
 *   Goal: make Email2ChatGPT "feel invisible." It should handle an inbound email in <2 seconds.
 *   Database: small tables, no joins beyond basic queries.
@@ -481,12 +481,12 @@ Consult README.md before ops. Explain git steps briefly/directly (e.g., "git add
 - README Updates: Always ensure accurate project overview post-changes—cover full flow, not just deltas. Funny note: "READMEs: Because future-you deserves a chuckle, not a cry."
 
 ## AI Assistance Rules
-- **MODEL GUIDANCE: GPT-5.1 is deprecated (API shutdown July 2026). Use `gpt-5.4` as default. Valid models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`. The Responses API endpoint is `https://api.openai.com/v1/responses` (NOT /chat/completions).**
+- **MODEL GUIDANCE: GPT-5.1 is deprecated (API shutdown July 2026). Use `gpt-5.5` as default. Valid models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5-mini`. The Responses API endpoint is `https://api.openai.com/v1/responses` (NOT /chat/completions).**
 - **NEVER suggest using GPT-4, GPT-4o, GPT-3.5, or reverting to older models under ANY circumstances.**
-- **If you see old model names (gpt-5.1, gpt-5, gpt-4o) in code/DB, proactively update them to `gpt-5.4`.**
-- **Default model: ALWAYS use `gpt-5.4` (not gpt-5.1, not gpt-5, not gpt-4o).**
+- **If you see old model names (gpt-5.1, gpt-5, gpt-4o) in code/DB, proactively update them to `gpt-5.5`.**
+- **Default model: ALWAYS use `gpt-5.5` (not gpt-5.1, not gpt-5, not gpt-4o).**
 - Task Breakdown: Plan step-by-step: 1) Research existing code. 2) Propose minimal changes. 3) Implement + test. 4) Update README if impacted.
-- Autonomy: Fix issues proactively (e.g., add missing env check, update old model names to gpt-5.4). **DO NOT ask about model choice—always use gpt-5.4.**
+- Autonomy: Fix issues proactively (e.g., add missing env check, update old deprecated model names to gpt-5.5). **DO NOT ask about model choice—always use gpt-5.5.**
 - Output: Generate code with comments; suggest tests. No apologies—fix and move on. Use TODO for incompletes.
 - Context: Reference @services/ingest/src/index.ts for main Worker; @services/ai/src/index.ts for OpenAI; @services/ingest/src/dashboard/ for admin UI.
 - Service Boundaries: Keep secrets isolated (OpenAI key only in rally-ai, Postmark token only in rally-mailer). Use service bindings for cross-service calls.

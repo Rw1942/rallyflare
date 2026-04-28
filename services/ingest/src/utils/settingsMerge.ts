@@ -51,12 +51,12 @@ export function mergeSettings(
   // Hardcoded fallbacks (used if project_settings doesn't exist)
   const defaults: ProjectSettings = {
     system_prompt: 'You are Rally, an intelligent email assistant.',
-    model: 'gpt-5.4',
+    model: 'gpt-5.5',
     reasoning_effort: 'medium',
     text_verbosity: 'low',
     max_output_tokens: 8000,
-    cost_input_per_1m: 2.50,
-    cost_output_per_1m: 15.00,
+    cost_input_per_1m: 5.00,
+    cost_output_per_1m: 30.00,
     web_search_enabled: 1,
     web_search_context_size: 'low',
   };

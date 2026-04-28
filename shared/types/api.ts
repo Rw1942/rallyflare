@@ -22,7 +22,7 @@ export interface EmailReply {
 
 /**
  * rally-ai API contract: Request
- * Sent from rally-ingest to rally-ai for GPT-5.1 processing
+ * Sent from rally-ingest to rally-ai for GPT-5.4+ Responses API processing
  */
 export interface AiRequest {
     messageId: string;
@@ -59,6 +59,7 @@ export interface AiResponse {
     openaiUploadTimeMs?: number;
     extractedData?: any;
     openaiResponseId?: string;
+    model?: string; // Model actually reported by OpenAI for this response
     serviceTier?: string; // OpenAI service tier used (e.g., "default", "auto")
     reasoningEffort?: string; // Reasoning effort level used
     textVerbosity?: string; // Text verbosity level used

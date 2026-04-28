@@ -1,4 +1,3 @@
-import { Service } from "cloudflare:workers";
 import type MailerService from "../../mailer/src/index";
 import type AiService from "../../ai/src/index";
 import type AttachmentsService from "../../attachments/src/index";

@@ -208,6 +208,9 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     };
 
     const aiResponse = await env.AI.generateReply(aiRequest);
+    const modelUsed = aiResponse.model || aiRequest.model;
+    const reasoningEffortUsed = aiResponse.reasoningEffort || aiRequest.reasoningEffort;
+    const textVerbosityUsed = aiResponse.textVerbosity || aiRequest.textVerbosity;
 
     // 6. Send Reply
     let sentAt: string | null = null;
@@ -286,9 +289,9 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
         costInDollars: costDollars,
         reasoningTokens: aiResponse.reasoningTokens,
         cachedTokens: aiResponse.cachedTokens,
-        model: aiRequest.model,
+        model: modelUsed,
         serviceTier: aiResponse.serviceTier,
-        reasoningEffort: aiResponse.reasoningEffort
+        reasoningEffort: reasoningEffortUsed
       });
       
       textBody = builtEmail.textBody;
@@ -328,9 +331,9 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
       aiResponse.summary, aiResponse.reply, aiResponse.tokensInput || null, aiResponse.tokensOutput || null,
       processingTimeMs, aiResponse.aiResponseTimeMs || null, sentAt, aiResponse.openaiResponseId || null,
       attachmentTimeMs, mailerTimeMs, ingestTimeMs, openaiUploadTimeMs, costDollars,
-      aiResponse.reasoningTokens || null, aiResponse.cachedTokens || null, aiRequest.model,
-      aiResponse.serviceTier || null, aiResponse.reasoningEffort || null,
-      aiResponse.textVerbosity || null,
+      aiResponse.reasoningTokens || null, aiResponse.cachedTokens || null, modelUsed,
+      aiResponse.serviceTier || null, reasoningEffortUsed || null,
+      textVerbosityUsed || null,
       aiResponse.webSearchUsed ? 1 : 0, aiResponse.webSearchSourceCount || null,
       internalId
     ).run();
@@ -380,7 +383,7 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
                 replyTo: replyToAddress || "no-reply@rallyflare.com",
                 inReplyTo: postmarkData.MessageID,
                 references: referencesValue,
-                originalMessageId: internalId || undefined
+                originalMessageId: internalId || "unknown"
             };
 
             await env.MAILER.sendEmail(errorReply);
