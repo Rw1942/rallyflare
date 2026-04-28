@@ -15,7 +15,7 @@ export default class AiService extends WorkerEntrypoint<Env> {
         
         const { body, boundary } = buildMultipart({
             file,
-            purpose: "assistants" // Required for Responses API usage
+            purpose: "user_data" // Recommended for files passed as input_file to Responses API
         });
 
         const resp = await fetch("https://api.openai.com/v1/files", {
@@ -133,15 +133,13 @@ export default class AiService extends WorkerEntrypoint<Env> {
             });
 
             // 3. Prepare Request Body for Responses API
-            const messages = [
-                { role: "system", content: [{ type: "input_text", text: request.systemPrompt }] },
-                { role: "user", content: userMessageContent }
-            ];
-
+            // Use top-level `instructions` for system prompt (cleaner Responses API semantics)
             const payload: any = {
                 model: request.model,
-                input: messages,
+                instructions: request.systemPrompt,
+                input: [{ role: "user", content: userMessageContent }],
                 max_output_tokens: request.maxOutputTokens,
+                store: false, // Don't persist email content on OpenAI's side
             };
 
             if (request.reasoningEffort) payload.reasoning = { effort: request.reasoningEffort };
@@ -170,19 +168,41 @@ export default class AiService extends WorkerEntrypoint<Env> {
             const aiEndTime = Date.now();
             const aiResponseTimeMs = aiEndTime - aiStartTime;
 
+            // Extract text from all completed assistant message items in the output array.
+            // The output can contain reasoning items, tool calls, and multiple messages;
+            // we aggregate every output_text part and detect refusals.
             let assistantMessage = "";
+            let refusalMessage = "";
 
             if (json.output && Array.isArray(json.output)) {
-                const messageItem = json.output.find((item: any) => item.type === "message");
-                const contentItem = messageItem?.content?.find((c: any) => c.type === "output_text");
-                assistantMessage = contentItem?.text || "";
-            } else {
-                assistantMessage = json.output_text || "";
+                const outputTypes = json.output.map((item: any) => item.type);
+                console.log("AI: Output item types:", outputTypes.join(", "));
+
+                for (const item of json.output) {
+                    if (item.type !== "message" || !Array.isArray(item.content)) continue;
+                    for (const part of item.content) {
+                        if (part.type === "output_text" && part.text) {
+                            assistantMessage += (assistantMessage ? "\n" : "") + part.text;
+                        } else if (part.type === "refusal" && part.refusal) {
+                            refusalMessage = part.refusal;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: SDK-style top-level convenience field
+            if (!assistantMessage && json.output_text) {
+                assistantMessage = json.output_text;
             }
 
             if (!assistantMessage) {
-                console.error("AI: Invalid response format:", json);
-                throw new Error(`No valid response from OpenAI. Response: ${JSON.stringify(json)}`);
+                if (refusalMessage) {
+                    console.warn("AI: Model refused the request:", refusalMessage);
+                    assistantMessage = `I'm unable to process this request. Reason: ${refusalMessage}`;
+                } else {
+                    console.error("AI: No text in response. Output:", JSON.stringify(json.output));
+                    throw new Error(`No valid response from OpenAI. Response id: ${json.id}`);
+                }
             }
 
             const reasoningTokens = json.usage?.output_tokens_details?.reasoning_tokens;
@@ -200,7 +220,6 @@ export default class AiService extends WorkerEntrypoint<Env> {
                 openaiResponseId: json.id,
                 serviceTier: json.service_tier,
                 reasoningEffort: json.reasoning?.effort,
-                temperature: json.temperature,
                 textVerbosity: json.text?.verbosity,
             };
 

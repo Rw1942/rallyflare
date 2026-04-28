@@ -59,7 +59,6 @@ export interface AiResponse {
     openaiResponseId?: string;
     serviceTier?: string; // OpenAI service tier used (e.g., "default", "auto")
     reasoningEffort?: string; // Reasoning effort level used
-    temperature?: number; // Temperature setting used
     textVerbosity?: string; // Text verbosity level used
 }
 

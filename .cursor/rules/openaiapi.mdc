@@ -1,15 +1,18 @@
-# GPT-5.1 Developer Guide (REST Only)
+# GPT-5.4 Developer Guide (REST Only)
 
 Cloudflare Workers • TypeScript • D1 • R2
 
 **IMPORTANT: Model Names**
-- **Available Models:**
-  - `gpt-5.1` - Advanced reasoning model with confirmed file support ($2.50 input / $10.00 output per 1M tokens)
-  - `gpt-5-mini` - Faster, cost-effective ($0.25 input / $2.00 output per 1M tokens)
-    - **Note:** File support not officially documented for gpt-5-mini. Use with caution for attachment-heavy emails.
-- **Supported Parameters:** `reasoning.effort`, `text.verbosity`, `max_output_tokens`
+- **Available Models (April 2026):**
+  - `gpt-5.5` - Frontier model for complex professional work ($5.00 input / $30.00 output per 1M tokens, 1.1M context)
+  - `gpt-5.4` - **Recommended default** — flagship reasoning model ($2.50 input / $15.00 output per 1M tokens, 1.05M context)
+  - `gpt-5.4-mini` - Strong mini for production workloads ($0.75 input / $4.50 output per 1M tokens, 400K context)
+  - `gpt-5-mini` - Budget option ($0.25 input / $2.00 output per 1M tokens, 500K context)
+- **Deprecated / Do NOT use:** `gpt-5.1` (legacy, API shutdown 2026-07-23), `gpt-5`, `gpt-4o`, `gpt-4`, `gpt-3.5-turbo`
+- **Supported Parameters:** `reasoning.effort` (none/low/medium/high/xhigh), `text.verbosity` (low/medium/high), `max_output_tokens`
 - **Unsupported Parameters:** `temperature`, `top_p` (will cause 400 errors)
-- **File Upload:** Both models use Files API (`/v1/files`) then reference via `file_id` in content array
+- **File Upload:** All models use Files API (`/v1/files` with `purpose: "user_data"`) then reference via `file_id` in content array
+- **Privacy:** Set `store: false` in Responses payload to prevent OpenAI from retaining email content
 
 ---
 
@@ -32,7 +35,7 @@ const headers = (env: Env) => ({
 ```ts
 export async function chat(env: Env, prompt: string) {
   const body = {
-    model: "gpt-5.1",  // or "gpt-5-mini" for faster, cheaper responses
+    model: "gpt-5.4",  // or "gpt-5.4-mini" / "gpt-5-mini" for cheaper responses
     input: [{ role: "user", content: prompt }],
     // Supported configuration parameters
     reasoning: { effort: "medium" }, // minimal, low, medium, high
@@ -65,19 +68,20 @@ const answer = await chat(env, "Explain the difference between R2 and D1.");
 
 ## 3. Streaming Responses (Token streaming via SSE)
 
-> For fast UX or R2 file processing, Workers streams tokens beautifully.
+> Use `stream: true` on the same `/v1/responses` endpoint (NOT a separate `/stream` path).
 
 ```ts
 export async function streamChat(env: Env, prompt: string) {
-  const resp = await fetch("https://api.openai.com/v1/responses/stream", {
+  const resp = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       ...headers(env),
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "gpt-5.1",
+      model: "gpt-5.4",
       input: [{ role: "user", content: prompt }],
+      stream: true,
       reasoning: { effort: "medium" },
       text: { verbosity: "low" }
     }),
@@ -102,7 +106,7 @@ export async function streamChat(env: Env, prompt: string) {
 
 ## 4. Attachments: Files, PDFs, Images
 
-**Important:** For GPT-5.1 and the Responses API, you must upload files to the **Files API** first, then reference them by `file_id`.
+**Important:** For GPT-5.4+ and the Responses API, you must upload files to the **Files API** first, then reference them by `file_id`.
 
 ### 4A. Multipart Helper for Workers
 
@@ -157,7 +161,7 @@ function appendPart(chunks: (string | Blob | Uint8Array)[], boundary: string, na
 async function uploadFile(env: Env, file: File): Promise<string> {
   const { body, boundary } = buildMultipart({
     file,
-    purpose: "assistants"
+    purpose: "user_data" // Use user_data for files passed as input_file to Responses API
   });
 
   const resp = await fetch("https://api.openai.com/v1/files", {
@@ -188,7 +192,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "gpt-5.1",
+    model: "gpt-5.4",
     input: [
       {
         role: "user",
@@ -224,7 +228,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "gpt-5.1",
+    model: "gpt-5.4",
     input: [
       {
         role: "user",
@@ -240,7 +244,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
 
 ---
 
-## 6. Multi-Turn Chat (D1 + GPT-5.1)
+## 6. Multi-Turn Chat (D1 + GPT-5.4)
 
 > Store each chat round in D1; replay ordered history to the model.
 
@@ -270,7 +274,7 @@ const resp = await fetch("https://api.openai.com/v1/responses", {
     "Content-Type": "application/json"
   },
   body: JSON.stringify({
-    model: "gpt-5.1",
+    model: "gpt-5.4",
     input: rows.map(m => ({
       role: m.role,
       content: m.content
@@ -314,7 +318,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
   if (file) {
     // Upload file first
-    const { body, boundary } = buildMultipart({ file, purpose: "assistants" });
+    const { body, boundary } = buildMultipart({ file, purpose: "user_data" });
     const uploadResp = await fetch("https://api.openai.com/v1/files", {
       method: "POST",
       headers: {
@@ -336,7 +340,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "gpt-5.1",
+      model: "gpt-5.4",
       input: [{ role: "user", content: userContent }],
       reasoning: { effort: "medium" },
       text: { verbosity: "low" }
@@ -352,6 +356,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
 ---
 
-**Note:** Use REST endpoints (`/v1/responses`, `/v1/responses/stream`) for all GPT-5.1 work in Email2ChatGPT on Workers—avoid the Node SDK for best cold starts and less config.
+**Note:** Use `POST /v1/responses` (with `stream: true` for SSE) for all GPT-5.4+ work in Email2ChatGPT on Workers—avoid the Node SDK for best cold starts and less config.
 
 ---

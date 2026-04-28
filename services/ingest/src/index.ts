@@ -13,6 +13,17 @@ const html = (content: string) => new Response(content, { headers: { "content-ty
 // Helper to get safe array results from D1
 const safeResults = (results: any) => Array.isArray(results) ? results : [];
 
+const ALLOWED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5-mini"] as const;
+const DEFAULT_MODEL = "gpt-5.4";
+
+/** Reject unknown model strings at the settings boundary */
+function sanitizeModel(raw: string | File | null): string {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if ((ALLOWED_MODELS as readonly string[]).includes(value)) return value;
+  if (value) console.warn(`Rejected invalid model "${value}", falling back to ${DEFAULT_MODEL}`);
+  return DEFAULT_MODEL;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
@@ -121,7 +132,7 @@ export default {
           WHERE project_slug = 'default'
         `).bind(
           formData.get('system_prompt'),
-          formData.get('model'),
+          sanitizeModel(formData.get('model')),
           formData.get('reasoning_effort'),
           formData.get('max_output_tokens')
         ).run();
@@ -185,7 +196,7 @@ export default {
         `).bind(
           emailAddress,
           formData.get('system_prompt') || null,
-          formData.get('model') || null,
+          sanitizeModel(formData.get('model')),
           formData.get('reasoning_effort') || null,
           formData.get('text_verbosity') || null,
           formData.get('max_output_tokens') || null
@@ -202,7 +213,7 @@ export default {
           WHERE email_address = ?
         `).bind(
           formData.get('system_prompt') || null,
-          formData.get('model') || null,
+          sanitizeModel(formData.get('model')),
           formData.get('reasoning_effort') || null,
           formData.get('text_verbosity') || null,
           formData.get('max_output_tokens') || null,

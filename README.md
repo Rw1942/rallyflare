@@ -4,7 +4,7 @@
 
 ## 1. Product Summary
 
-Email2ChatGPT turns any email into a ChatGPT conversation. Users send an email to `chat@email2chatgpt.com`, and the service replies with AI-generated responses powered by GPT-5.1. No app. No login. No dashboard. Just email in, AI out.
+Email2ChatGPT turns any email into a ChatGPT conversation. Users send an email to `chat@email2chatgpt.com`, and the service replies with AI-generated responses powered by GPT-5.4. No app. No login. No dashboard. Just email in, AI out.
 
 It’s built for people and companies stuck behind firewalls, legacy environments, or restrictive IT policies. It works everywhere email works.
 
@@ -21,7 +21,7 @@ The system includes a fast, mobile-friendly admin dashboard for managing the bot
 *   **User Management:**
     *   Searchable user list.
     *   **Conversation History:** See full timeline of user interactions with collapsible details, HTML previews, and consistent styling with the main messages view.
-    *   **Per-User Settings:** Override AI model (GPT-5.1 vs Mini) and prompts for specific users.
+    *   **Per-User Settings:** Override AI model (GPT-5.5/5.4/Mini) and prompts for specific users.
     *   **GDPR Tools:** Export user data (JSON) or permanently delete/anonymize users.
 *   **Global Settings:** Configure default AI behavior (System Prompt, Model, Reasoning Effort) for all users.
 
@@ -164,7 +164,7 @@ npx wrangler tail rallyflare
 
 **AI Not Replying:**
 *   Check `rally-ai` logs: `npx wrangler tail rally-ai`
-*   Ensure your OpenAI API key is valid and has access to `gpt-5.1`.
+*   Ensure your OpenAI API key is valid and has access to `gpt-5.4`.
 *   Verify `rally-ingest` logs to see if it successfully handed off the request.
 
 **Migrations Not Working:**
@@ -179,5 +179,5 @@ MIT License - feel free to use Email2ChatGPT for personal or commercial projects
 ---
 
 **Credits**
-Built with Cloudflare Workers, D1, Postmark, and OpenAI GPT-5.1.
+Built with Cloudflare Workers, D1, Postmark, and OpenAI GPT-5.4.
 Produced by Rally Collaboration.

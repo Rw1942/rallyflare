@@ -47,8 +47,10 @@ export function renderUserDetail(user: any, history: any[], settings: any, pagin
             <label class="form-label">Model Override</label>
             <select class="form-select" name="model">
               <option value="" ${!settings?.model ? 'selected' : ''}>Default (Global)</option>
-              <option value="gpt-5.1" ${settings?.model === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1</option>
-              <option value="gpt-5-mini" ${settings?.model === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini</option>
+              <option value="gpt-5.5" ${settings?.model === 'gpt-5.5' ? 'selected' : ''}>GPT-5.5 (Frontier)</option>
+              <option value="gpt-5.4" ${settings?.model === 'gpt-5.4' ? 'selected' : ''}>GPT-5.4 (Recommended)</option>
+              <option value="gpt-5.4-mini" ${settings?.model === 'gpt-5.4-mini' ? 'selected' : ''}>GPT-5.4 Mini</option>
+              <option value="gpt-5-mini" ${settings?.model === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini (Budget)</option>
             </select>
           </div>
 

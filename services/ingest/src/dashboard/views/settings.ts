@@ -16,8 +16,10 @@ export function renderSettings(settings: any): string {
           <div class="form-group">
             <label class="form-label">Default Model</label>
             <select class="form-select" name="model">
-              <option value="gpt-5.1" ${settings?.model === 'gpt-5.1' ? 'selected' : ''}>GPT-5.1 (Advanced)</option>
-              <option value="gpt-5-mini" ${settings?.model === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini (Fast)</option>
+              <option value="gpt-5.5" ${settings?.model === 'gpt-5.5' ? 'selected' : ''}>GPT-5.5 (Frontier)</option>
+              <option value="gpt-5.4" ${settings?.model === 'gpt-5.4' ? 'selected' : ''}>GPT-5.4 (Recommended)</option>
+              <option value="gpt-5.4-mini" ${settings?.model === 'gpt-5.4-mini' ? 'selected' : ''}>GPT-5.4 Mini</option>
+              <option value="gpt-5-mini" ${settings?.model === 'gpt-5-mini' ? 'selected' : ''}>GPT-5 Mini (Budget)</option>
             </select>
           </div>
 
