@@ -1,11 +1,11 @@
 // Service-to-service API contracts
-// These define how rally-ingest, rally-ai, rally-mailer, and rally-attachments communicate
+// These define how rallyflare (ingest), rally-ai, rally-mailer and rally-attachments communicate
 
 import type { PostmarkInboundMessage } from './common';
 
 /**
  * rally-mailer API contract
- * Used by rally-ingest to send outbound emails via Postmark
+ * Used by rallyflare (ingest) to send outbound emails via Postmark
  */
 export interface EmailReply {
     from: string; // The Rally email address that received the original message
@@ -22,7 +22,7 @@ export interface EmailReply {
 
 /**
  * rally-ai API contract: Request
- * Sent from rally-ingest to rally-ai for GPT-5.4+ Responses API processing
+ * Sent from rallyflare (ingest) to rally-ai for GPT-5.4+ Responses API processing
  */
 export interface AiRequest {
     messageId: string;
@@ -46,7 +46,7 @@ export interface AiRequest {
 
 /**
  * rally-ai API contract: Response
- * Returned from rally-ai back to rally-ingest with AI-generated content
+ * Returned from rally-ai back to rallyflare (ingest) with AI-generated content
  */
 export interface AiResponse {
     summary: string;
