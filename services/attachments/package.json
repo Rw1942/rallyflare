@@ -1,11 +1,16 @@
 {
-    "name": "attachments",
-    "version": "1.0.0",
-    "main": "src/index.ts",
-    "dependencies": {
-        "shared": "*"
-    },
-    "devDependencies": {
-        "wrangler": "^4.50.0"
-    }
+  "name": "@rallyflare/attachments",
+  "private": true,
+  "description": "Worker rally-attachments",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc",
+    "check": "tsc && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "shared": "*"
+  }
 }

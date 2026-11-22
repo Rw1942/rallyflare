@@ -1,9 +1,8 @@
-import { PostmarkInboundMessage, EmailReply, AiRequest, AiResponse } from "shared/types";
+import { PostmarkInboundMessage, EmailReply, AiRequest } from "shared/types";
 import { hasImages, flattenHtml, appendAttachments, calculateCost } from "../utils/index";
-import { formatAddress, normalizeEmail, calculateReplyRecipients } from "../utils/emailFormatting";
+import { calculateReplyRecipients } from "../utils/emailFormatting";
 import { buildEmailWithFooter, buildErrorEmail, buildSimpleEmail } from "../utils/emailTemplate";
 import { mergeSettings, type ProjectSettings, type EmailSettings } from "../utils/settingsMerge";
-import type { Env } from "../types";
 
 export async function handlePostmarkInbound(request: Request, env: Env): Promise<Response> {
   // Auth check
@@ -43,8 +42,6 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     }
 
     // 1. Store Message in D1
-    // const rallyEmailAddress = extractRallyEmailAddress(postmarkData).toLowerCase(); // Already extracted above
-    // const senderEmail = (postmarkData.FromFull?.Email || postmarkData.From || "").toLowerCase(); // Already extracted above
 
     let textContent = postmarkData.TextBody || "";
     if (hasImages(postmarkData) || !textContent) {
@@ -74,22 +71,8 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
     // We need to store all participants to allow looking up history for CC'd users
     const participantsToInsert: { kind: string, name: string, email: string }[] = [];
 
-    // Helper validation to ensure 'kind' matches table constraint: 'to', 'cc', 'bcc' (though Postmark doesn't send BCC usually)
-    // We map 'from' to 'to' or handle it separately? 
-    // The schema check is CHECK(kind IN ('to','cc','bcc')). 'from' is NOT allowed.
-    // We should map 'from' to a valid kind or update the schema. 
-    // Since 'from' is the sender, conceptually they are a participant.
-    // However, the current schema likely intended to track recipients of the message (To/Cc).
-    // If we want to track the sender in this table for history lookup, we need to update the schema or map it.
-    // Given we query this table for ANY participation, we should probably add 'from' to the allowed Check constraint or map it.
-    // BUT, we cannot easily change a CHECK constraint in SQLite/D1 without a complex migration (recreate table).
-    // Strategy: For now, we will ONLY insert To and Cc into the participants table to satisfy the constraint.
-    // The Sender is already tracked in the 'messages' table (from_email column).
-    // Our history query in index.ts joins participants OR checks from_email/recipient_email, so we are covered for the sender via the messages table.
-    
-    // if (postmarkData.FromFull) {
-    //   participantsToInsert.push({ kind: 'from', name: postmarkData.FromFull.Name, email: postmarkData.FromFull.Email });
-    // }
+    // participants.kind is CHECK(kind IN ('to','cc','bcc')), so only To and Cc go here.
+    // The sender is already in messages.from_email, and history queries check both.
     
     if (postmarkData.ToFull) {
       for (const to of postmarkData.ToFull) {
@@ -244,16 +227,8 @@ export async function handlePostmarkInbound(request: Request, env: Env): Promise
           // Skip if it's the Rally address itself
           if (email === rallyEmailAddress) continue;
           
-          // Fire-and-forget user creation (INSERT OR IGNORE style handled by DB trigger/logic if possible, 
-          // but here we rely on the users table existing. The trigger only auto-populates on MESSAGE insert.
-          // So we might want to explicitly ensure they exist if we want them tracked before they send a message themselves.)
-          // However, the requirement is "created as new users". 
-          // The current schema has a trigger that auto-populates users when a message is inserted.
-          // But that only covers the SENDER. We need to track RECIPIENTS too.
-          
-          // We'll verify if we need an explicit INSERT for these users.
-          // The 'users' table is: email (PK), first_seen, last_seen, stats...
-          // Let's add them if they don't exist.
+          // The users trigger only covers senders, so recipients are added here
+          // (fire-and-forget, so tracking never delays the reply).
           env.DB.prepare(`
             INSERT INTO users (email, first_seen, last_seen)
             VALUES (?, ?, ?)

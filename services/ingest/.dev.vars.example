@@ -1,0 +1,3 @@
+# Copy to .dev.vars for `npm run dev`. Postmark sends these as HTTP Basic Auth on the inbound webhook.
+WEBHOOK_USERNAME=
+WEBHOOK_PASSWORD=

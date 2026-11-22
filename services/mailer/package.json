@@ -1,8 +1,16 @@
 {
-    "name": "mailer",
-    "version": "1.0.0",
-    "main": "src/index.ts",
-    "dependencies": {
-        "shared": "*"
-    }
+  "name": "@rallyflare/mailer",
+  "private": true,
+  "description": "Worker rally-mailer",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc",
+    "check": "tsc && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "shared": "*"
+  }
 }

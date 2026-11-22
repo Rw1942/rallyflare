@@ -5,7 +5,6 @@ import { renderUsers } from "./dashboard/views/users";
 import { renderUserDetail } from "./dashboard/views/userDetail";
 import { renderSettings } from "./dashboard/views/settings";
 import { renderPersonas, renderPersonaEdit, renderPersonaDetail } from "./dashboard/views/personas";
-import type { Env } from "./types";
 
 // Helper to create HTML response
 const html = (content: string) => new Response(content, { headers: { "content-type": "text/html" } });

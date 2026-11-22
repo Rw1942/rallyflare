@@ -1,8 +1,20 @@
 {
-    "name": "ingest",
-    "version": "1.0.0",
-    "main": "src/index.ts",
-    "dependencies": {
-        "shared": "*"
-    }
+  "name": "@rallyflare/ingest",
+  "private": true,
+  "description": "Worker rallyflare",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc",
+    "check": "tsc && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "types": "wrangler types -c wrangler.jsonc -c ../ai/wrangler.jsonc -c ../mailer/wrangler.jsonc -c ../attachments/wrangler.jsonc",
+    "dev": "wrangler dev -c wrangler.jsonc -c ../ai/wrangler.jsonc -c ../mailer/wrangler.jsonc -c ../attachments/wrangler.jsonc",
+    "db:migrate:local": "wrangler d1 migrations apply rally-database --local",
+    "db:migrate:remote": "wrangler d1 migrations apply rally-database --remote",
+    "db:migrations:list": "wrangler d1 migrations list rally-database --remote"
+  },
+  "dependencies": {
+    "shared": "*"
+  }
 }

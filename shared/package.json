@@ -1,11 +1,12 @@
 {
-    "name": "shared",
-    "version": "1.0.0",
-    "main": "types/index.ts",
-    "exports": {
-        ".": "./types/index.ts",
-        "./types": "./types/index.ts",
-        "./types/common": "./types/common.ts",
-        "./types/api": "./types/api.ts"
-    }
+  "name": "shared",
+  "private": true,
+  "version": "1.0.0",
+  "main": "types/index.ts",
+  "exports": {
+    ".": "./types/index.ts",
+    "./types": "./types/index.ts",
+    "./types/common": "./types/common.ts",
+    "./types/api": "./types/api.ts"
+  }
 }

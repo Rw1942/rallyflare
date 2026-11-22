@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `npm run dev`. Local dev sends real mail through Postmark when this is set.
+POSTMARK_TOKEN=

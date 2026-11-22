@@ -1,9 +1,16 @@
 {
-    "name": "ai",
-    "version": "1.0.0",
-    "main": "src/index.ts",
-    "dependencies": {
-        "openai": "^4.28.0",
-        "shared": "*"
-    }
+  "name": "@rallyflare/ai",
+  "private": true,
+  "description": "Worker rally-ai",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc",
+    "check": "tsc && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "shared": "*"
+  }
 }
